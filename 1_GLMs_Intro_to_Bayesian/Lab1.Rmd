@@ -183,28 +183,6 @@ $log(E(C))=log(\lambda_{i})=\eta_{i}$
 $\eta_{i} = \alpha_{j}+\beta*body_{i}$
 
 
-
-
-```{r}
-
-hist(data$beetles)
-hist(data$beetles2)
-
-plot(data$x, data$y)
-
-```
-
-Our first question is: **How does the abundance of the two beetles change with altitude?**
-
-
-## A generalized linear model
-
-$$y_i \sim \text{Poisson}(\mu_i)$$
-$$\log(\mu_i) = \beta_0 + \beta_1 x_{i}$$
-
-
-## Different modes of estimating the GLM
-
 We can fit this in R as the following model:
 
 $C_{i} \sim Poisson(\lambda_{i})$
