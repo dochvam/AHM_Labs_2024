@@ -1,385 +1,304 @@
 ---
-title: 'Lab 1: Intro to Bayesian model estimation, and GLMs'
+title: 'Lab 1: Intro to Bayesian model estimation: GLMs'
 author: "Ben Goldstein and Krishna Pacifici"
 date: "Fall 2024"
 output: html_document
 ---
 
 ```{r setup, include=FALSE}
+
 knitr::opts_chunk$set(echo = TRUE)
 
 source("../aux/Prepare_EcoData.R")
 
 ```
 
-## Linear Models
 
-A linear model is composed of several important components: link functions, and the linear functions of covariates (typically in the mean part of the model). In normal linear regression there is no link function (the response variables are on a scale that corresponds to the support of the normal distribution, $-\infty$ to $\infty$ or at least can be approximated to be so), but there is still a mean part of the model that contains the linear functions of covariates (weighted sums of covariate values, where coefficients represent the weights).
+1. Read in the data
 
-### Example
-We measured wingspan and body length of nine blue-eyed hooktail dragonflies in three populations in the Spanish Pyrenees (Navarra, Aragon, and Catalonia). For each individual we also assessed sex, color intensity (proportion of body that is yellow), ectoparasite load (number of mites counted), and whether each of the four wings (two hind, two front) was damaged.
+2. Plot some of the covariates. Scale them?
 
-We are interested in exploring the relationship between wingspan (a numeric response) and four explanatory variables: population, sex, body length, and color intensity. Population (1 = Navarra, 2 = Aragon, 3 = Catalonia) and sex (1 = male, 2 = female) are factors (categorical with no quantitative meaning, 2 is not twice as much as 1, simply labels or group names). Other variables are continuous, where the numbers have meaning. Here we'll differentiate these two kinds of variables by referring to continuous variables as *covariates* and categorical variables as *factors*.
+3. Explore a few models that build up in complexity. Estimate them with NIMBLE
 
-```{r echo=T}
-# Define data
-pop <- factor(c(rep("Navarra", 3), rep("Aragon", 3), rep("Catalonia", 3)), levels = c("Navarra", "Aragon", "Catalonia"))         # Population
-wing <- c(10.5, 10.6, 11.0, 12.1, 11.7, 13.5, 11.4, 13.0, 12.9) # Wing span
-body <- c(6.8, 8.3, 9.2, 6.9, 7.7, 8.9, 6.9, 8.2, 9.2) # Body length
-sex <- factor(c("M","F","M","F","M","F","M","F","M"), levels = c("M", "F"))
-mites <- c(0, 3, 2, 1, 0, 7, 0, 9, 6)      # Number of ectoparasites
-color <- c(0.45, 0.47, 0.54, 0.42, 0.54, 0.46, 0.49, 0.42, 0.57) # Color intensity
-damage <- c(0,2,0,0,4,2,1,0,1)                 # Number of wings damaged
 
-cbind(pop, sex, wing, body, mites, color, damage) # Look at data
-
-#In R, factor levels for pop and sex are stored as integers (1 to the number of levels)
-#but they are interpreted as names
-
-str(pop)
-
-#plot the data for wingspan, parasite load, and damage
-#Navarra - red, Aragon - green, and Catalonia - blue
-#circles - females triangles - males
-
-par(mfrow = c(1, 3), cex = 1.2)
-colorM <- c("red", "red", "blue", "green", "green")  # Pop color code males
-colorF <- c("red", "blue", "blue", "green", "green") # Pop color code females
-plot(body[sex == "M"], wing[sex == "M"], col =colorM, xlim = c(6.5, 9.5), ylim = c(10, 14), lwd = 2, frame.plot = FALSE, las = 1, pch = 17, xlab = "Body length", ylab = "Wing span")
-points(body[sex == "F"], wing[sex == "F"], col =colorF, pch = 16)
-text(6.8, 13.8, "A", cex = 1.5)
-plot(body[sex == "M"], mites[sex == "M"], col = colorM, xlim = c(6.5, 9.5), ylim = c(0, 10), lwd = 2, frame.plot = FALSE, las = 1, pch = 17, xlab = "Body length", ylab = "Parasite load")
-points(body[sex == "F"], mites[sex == "F"], col = colorF, pch = 16)
-text(6.8, 9.7, "B", cex = 1.5)
-plot(body[sex == "M"], damage[sex == "M"], col = colorM, xlim = c(6.5, 9.5), ylim = c(0, 4), lwd = 2, frame.plot = FALSE, las = 1, pch = 17, xlab = "Body length", ylab = "Damaged wings")
-points(body[sex == "F"], damage[sex == "F"], col = colorF, pch = 16)
-text(6.8, 3.9, "C", cex = 1.5)
-```
-
-**Additive**
-
-In a linear model the parameters are included in a linear fashion (i.e. they act on a response in an additive manner), but that does not necessarily mean that the relationships are linear. Quadratic terms or polynomial terms can be included that make the relationship nonlinear (a plot would not be linear).
-
-Linear models can be described:
-
-- with words, "population and body length act additively on wingspan"
-
-- using specific names or labels for least-squares techniques that *imply* a certain linear model; "t-test", "ANOVA", "linear regression", "ANCOVA"
-
-- using graphs, lines or bar plots
-
-- in algebra, $y_{i} \sim Normal(\alpha_{j(i)} + \beta*x_{i},\sigma^{2})$
-
-- using matrix algebra, $\textbf{y} = \textbf{X}\beta + \epsilon$
-
-- as a system of equations
-
-- in R, lm(wing~pop+length)
-
-- using BUGS model definition language, 
-y[i] ~ dnorm(mu[i],tau)
-mu[i] <- alpha[pop[i]]+beta*length[i]
-
-### Linear models with main effects of one factor and one continuous covariate
-
-We want to fit a model where pop and length act in an additive fashion on wingspan. We want to look at the main effects of population and length on wingspan. This is also called an "ANCOVA".
-
-$wing_{i} = \mu + \alpha_{j} + \beta*body_{i} + \epsilon_{i}$
-$\epsilon_{i} \sim Normal(0,\sigma^{2})$
-
-Here, the response is the wingspan of dragonfly *i*, and $body_{i}$ is the value of covariate body length for dragonfly *i*.
-
-The intercept, $\mu$ is a constant shared by the response of all nine dragonflies. 
-
-Vector $\alpha_{j}$ has three elements for the number of levels (populations) in the factor pop, and contains the *effects* of each population. For population 1 (Navarra), we have $\alpha_{1}$; for population 2 (Aragon), $\alpha_{2}$; and for population 3 (Catalonia), $\alpha_{3}$. 
-
-Parameter $\beta$ is the expected change in wingspan for one-unit change in body length.
-
-The unexplained part in the wingspan of dragonfly *i*, which is not accounted for by population membership or body length of dragonfly *i*, is the residual $\epsilon_{i}$.
-
-The residuals are assumed to be independent draws from the same normal distribution with constant variance.
-
-The residual variance ($\sigma^{2}$) is also an estimated model parameter.
-
-We have four parameters ($\alpha_{j}$ and $\beta$) to describe the expected response and one parameter ($\sigma$) for the variability of the response around the mean.
-
-```{r, echo=T}
-fm1 <- lm(wing~pop+body)
-summary(fm1)
-```
-
-We see that R does not differentiate between the two types of explanatory variables, covariates and factors, although you have to declare factors as factors (either when you enter data or in the model). Effects of a factor are broken into two or more *indicator* or *dummy variables* that contain 0s and 1s only. For pop we have three dummy variables, one for each level (population) of the pop factor.
-
-This model is *overparameterized* because we cannot estimate both the intercept $\mu$ and a full parameter vector $\boldsymbol{\alpha}={\alpha_{1},\alpha_{2},\alpha_{3}}$ of length 3. We need to set one of the $\alpha_{j}$ to zero to make the model identifiable. Usually we set the first factor level is set to zero, constrain $\alpha_{1}=0$. Then the intercept $\mu$ becomes the intercept for dragonflies in population 1, the expected wingspan of a (hypothetical) dragonfly of length 0 in Navarra. The remaining two elements of $\boldsymbol{\alpha}$, are estimated as the differences between the intercepts of the regression lines in populations 2 and 3 relative to the intercept in population 1 (why we only get estimates for Aragon and Catalonia in the R output). Now the population 1 serves as a baseline or reference, and the other two estimated parameters for populations 2 and 3 represent comparisons to the baseline. This modeling approach is termed treatment contrasts or effects parameterization.
-
-
-### More models
-
-One continuous and one factor.
-Now we look at a different parameterization, the *means* parameterization. In this model we'll remove $\mu$ from the model so that the different levels of the population are estimated directly through the $\boldsymbol{\alpha}$ vector. They are now the direct intercepts of the three regression lines, the expected wingspans of a dragonfly at body length 0 in the three populations. Each parameter corresponds directly to the **group mean**.
-
-```{r, echo=T}
-summary(fm1 <- lm(wing ~ pop + body))
-
-summary(fm2 <- lm(wing ~ pop-1 + body))
-
-cbind(model.matrix(~pop+body) %*% fm1$coef, predict(fm1)) # Compare two solutions
-
-model.matrix(~ pop + body) # Effects parameterization
-
-model.matrix(~ pop-1 + body) # Means parameterization
-
-par(mfrow = c(1, 3), mar = c(5,4,2,2), cex = 1.2, cex.main = 1)
-plot(body[sex == "M"], wing[sex == "M"], col = colorM, xlim = c(6.5, 9.5), ylim = c(10, 14), lwd = 2, frame.plot = FALSE, las = 1, pch = 17, xlab = "Body length", ylab = "Wing span")
-points(body[sex == "F"], wing[sex == "F"], col = colorF, pch = 16)
-abline(coef(fm2)[1], coef(fm2)[4], col = "red", lwd = 2)
-abline(coef(fm2)[2], coef(fm2)[4], col = "blue", lwd = 2)
-abline(coef(fm2)[3], coef(fm2)[4], col = "green", lwd = 2)
-text(6.8, 14, "A", cex = 1.5)
-```
-
-We can see that the parameters are the same or can be obtained by adding two of the parameters in the effects parameterization. The value of popAragon is obtained by adding the value of the intercept and of popAragon in the previous parameterization. The advantage here is the ease of interpretation. It cannot be used for models with multiple factors.
-
-
-
-## Generalized Linear Models (GLMs)
-
-GLMs extend the concept of a linear model to data where the response variables comes from a different distribution than Normal. Examples include Poisson, binomial, gamma, exponential, Bernoulli. One of the important points is that now the linear effect of the covariates is expressed *not* for the expected response directly, but for a *transformation* of the expected response. That transformation is called the *link function*. There are three components to a GLM for response $y_{i}$:
-
-- *Random part of the response (or error structure)* of the model - a statistical distribution $f$ with parameter(s) $\theta$:
-
-$y_{i} \sim f(\theta)$
-
-- A *link function g*, which is applied to the expected response $E(y)=\mu_{i}$, with $\eta_{i}$ known as the *linear predictor*:
-
-$g(E(y))=g(\mu_{i})=\eta_{i}$
-
-- *Systematic part of the response (or mean structure)* of the model: the linear predictor $(\eta_{i})$, which contains a linear model:
-
-$\eta_{i}=\alpha+\beta*x_{i}$
-
-
-
-We can combine elements 2 and 3 and define a GLM succinctly as:
-
-$y_{i} \sim f(\theta)$
-
-$g(\mu_{i})=\alpha + \beta*x_{i}$
-
-A response $y$ follows a distribution $f$ with parameter(s) $\theta$, and a transformation $g$ of the expected, or mean, response is modeled as a linear function of covariates. 
-
-
-### Canonical link functions
-
-Certain link functions go particularly well with certain response variables. These are called *canonical* link functions: *identity link* for normal responses ($\eta_{i}=\mu_{i}$), the *log link* for Poisson responses ($\eta_{i}=log(\mu_{i})$), and the *logit link* for binomial or Bernoulli responses ($\eta_{i}=log(\mu_{i}/(1-\mu_{i}))$). Technically GLMs are defined for all members of statistical distributions belonging to the *exponential family* which includes the normal, Poisson, binomial/Bernoulli, multinomial, beta, gamma, lognormal, exponential, and Dirichlet distributions. So the principles of linear modeling can be applied to a wide number of error models.
-
-
-Let's return to our example of dragonflies and look at the number of mites counted on dragonfly $i$, $C_{i}$. We can write this out as:
-
-$C_{i} \sim Poisson(\lambda)$
-
-$log(E(C))=log(\lambda_{i})=\eta_{i}$
-
-$\eta_{i} = \alpha_{j}+\beta*body_{i}$
-
-
-We can fit this in R as the following model:
-
-$C_{i} \sim Poisson(\lambda_{i})$
-
-$log(\lambda_{i}) = \alpha_{j} + \beta*body_{i}$
-
-```{r echo=T}
-# Define data
-pop <- factor(c(rep("Navarra", 3), rep("Aragon", 3), rep("Catalonia", 3)), levels = c("Navarra", "Aragon", "Catalonia"))         # Population
-wing <- c(10.5, 10.6, 11.0, 12.1, 11.7, 13.5, 11.4, 13.0, 12.9) # Wing span
-body <- c(6.8, 8.3, 9.2, 6.9, 7.7, 8.9, 6.9, 8.2, 9.2) # Body length
-sex <- factor(c("M","F","M","F","M","F","M","F","M"), levels = c("M", "F"))
-mites <- c(0, 3, 2, 1, 0, 7, 0, 9, 6)      # Number of ectoparasites
-color <- c(0.45, 0.47, 0.54, 0.42, 0.54, 0.46, 0.49, 0.42, 0.57) # Color intensity
-damage <- c(0,2,0,0,4,2,1,0,1)                 # Number of wings damaged
-
-summary(model.poisson <-glm(mites~ pop-1 + body, family=poisson))
-```
-
-### Estimating the model with NIMBLE
-
-```{r}
-tryCatch(library(nimble), 
-         error = function(e) {
-           install.packages("nimble")
-         })
-
-
-library(nimble)
-
-```
-
-
-We specify the model using NIMBLE code. NIMBLE code is declarative, so it's different than regular R code, but much of the syntax is shared.
-
-```{r}
-
-my_code <- nimbleCode({
-  # Data likelihood: links
-  for (i in 1:nobs) {
-    log(mu[i]) <- alpha[pop[i]] + beta1 * x[i]
-    y[i] ~ dpois(mu[i])
-  }
-  
-  # Priors for our parameters
-  for (i in 1:npop) {
-    alpha[i] ~ dnorm(0, sd = 10)
-  }
-  beta1 ~ dnorm(0, sd = 10)
-})
-
-```
-
-
-Now we use that code, which describes the structure of the model and the relationships between the model's elements, to build an instance of the model. This will create a "model object" that we can manipulate similarly to an R list.
-
-```{r}
-my_model_obj <- nimbleModel(
-  code = my_code,
-  constants = list(
-    nobs = length(mites),
-    npop = length(unique(pop)),
-    
-    x = body,
-    pop = as.numeric(as.factor(pop))
-  ),
-  data = list(
-    y = mites
-  ),
-  inits = list(
-    alpha = rep(0, length(unique(pop))),
-    beta1 = 0
-  )
-)
-
-```
-```{r}
-# Look at elements of the model
-my_model_obj$alpha
-my_model_obj$beta1
-my_model_obj$y
-my_model_obj$mu
-```
-
-What is `mu`? Why are all of the elements of `mu` exactly 1?
-
-```{r}
-my_model_obj$beta1 <- 0.01
-my_model_obj$calculate("mu")
-my_model_obj$mu
-```
-
-
-```{r}
-# Get the log likelihood of the data or the full model
-my_model_obj$calculate()
-```
-
-Now we can use NIMBLE to run an MCMC algorithm using this model.
-
-```{r}
-mcmcConf <- configureMCMC(my_model_obj)
-mcmc <- buildMCMC(mcmcConf)
-
-# Compile the model and the MCMC object
-compiled_list <- compileNimble(my_model_obj, mcmc)
-
-# Run the MCMC
-samples <- runMCMC(compiled_list$mcmc, 
-                   niter = 1000, nburnin = 500, thin = 1, nchains = 4, 
-                   samplesAsCodaMCMC = TRUE
-                   )
-```
-
-What did we just do?
-
-```{r}
-
-plot(samples[, 1])
-plot(samples[, 4])
-
-```
-
-We can retrieve diagnostics describing how well these chains mixed.
-
-Two common diagnostics:
-
- - "Rhat", the Gelman-Rubin diagnostic, describes how much each chain mixed relative to the variation across all the chains. The rule of thumb is that R-hat should be < 1.1.
- - "n.eff", the effective sample size, estimates how many *independent* draws from the posterior
- contain the same amount of information as your samples. Higher is better. You usually want
- at least 100. 
-
-```{r}
-MCMCvis::MCMCsummary(samples)
-```
-
-Looks like our MCMC sampling hasn't converged. Let's try re-running the algorithm
-longer, this time using more iterations and a longer burn-in period.
-
-```{r}
-samples2 <- runMCMC(compiled_list$mcmc, 
-                   niter = 20000, nburnin = 5000, thin = 1, nchains = 4, 
-                   samplesAsCodaMCMC = TRUE
-                   )
-
-plot(samples2[, 1])
-plot(samples2[, 4])
-
-
-MCMCvis::MCMCsummary(samples2)
-
-```
-Now our diagnostic values are better and our plots look okay (though not great).
-
-How do our parameter estimates compare to those from the MLE?
-
-```{r}
-# MCMC estimate
-MCMCvis::MCMCsummary(samples2)[, 1:2]
-
-# MLE estimate
-summary(model.poisson)
-```
-
-
-## Excercise: beetle counts
+## Load the data: Beetle counts
 
 In this example, ecologists have surveyed a number of random plots around a
 volcano in New Zealand for beetles. We want to know how the count of beetles
 observed is related to altitude.
 
-We will estimate a model of the form
+
+The data are loaded in a `data.frame` called 
+
+```{r}
+beetle_data <- EcoData::volcanoisland
+
+```
+
+Let's look at the histogram of counts.
+
+```{r}
+hist(beetle_data$beetles)
+```
+
+We can look at histograms of other columns, too.
+
+```{r}
+# Altitude:
+hist(beetle_data$altitude)
+# Mean wind speed:
+hist(beetle_data$windMean)
+# Habitat quality measure:
+hist(beetle_data$habitatQuality)
+# Year:
+hist(beetle_data$year)
+```
+
+We can also plot beetle counts against different variables.
+
+```{r}
+plot(beetle_data$altitude, beetle_data$beetles)
+
+plot(beetle_data$habitatQuality, beetle_data$beetles)
+
+# Make year a factor so we get boxplots
+plot(as.factor(beetle_data$year), beetle_data$beetles)
+```
+
+
+**What do you notice from looking at these plots?**
+
+
+
+
+### Model 1: beetles and altitude
+
+We will start by estimating a simple GLM with one covariate on the mean abundance of beetles. Since our response variable is a count, the Poisson error family is appropriate. The model we'll estimate is of the form:
 
 $$y_i \sim \text{Poisson}(\lambda_i)$$
-$$\log(\lambda_i) = \beta_0 + \beta_1 \times \text{year}_i + \beta_2 \times \text{altitude}_i$$
+$$\log(\lambda_i) = \beta_0 + \beta_1 \times \text{altitude}_i$$
 
+Let's estimate this modeling using NIMBLE. 
+
+### Define the model code
+
+The first step is to define model code. 
 
 ```{r}
-data <- EcoData::volcanoisland[, c("dataID", "plot", "year", "x", "y",
-                                   "habitatQuality", "altitude", "beetles")]
+library(nimble)
+my_code <- nimbleCode({
+  
+  # Data likelihood
+  for (i in 1:nobs) {
+    log(mu[i]) <- beta0 + beta1 * altitude[i]
+    y[i] ~ dpois(mu[i])
+  }
+  
+  # Priors for our two parameters
+  beta0 ~ dnorm(0, sd = 10)
+  beta1 ~ dnorm(0, sd = 10)
+  
+})
+
+```
+
+**What do these priors for beta0 and beta1 mean?**
+
+**What do they do mechanically in the model?**
+
+**What do they do in the MCMC algorithm?**
+
+**How do you know if a parameter needs priors to be specified?**
+
+### Build and compile the model
+
+The next step is to construct a model object using the definition we just created. At this step, we populate the values for the data and build out the structure.
+
+When you build a nimbleModel, there are four things you need to provide:
+
+1. The model code
+2. A list of **data**. Data are 
+3. A list of **constants**.
+
+
+Before we provide it to the model, we want to *center and scale* altitude.
+```{r}
+beetle_data$altitude_scaled <- as.numeric(scale(beetle_data$altitude))
+
+# Store the mean and sd of the originals so we can back-transform later
+altitude_mean <- mean(beetle_data$altitude)
+altitude_sd <-     sd(beetle_data$altitude)
 ```
 
 
-Starting with the code from the previous example, estimate this model with MLE 
-(using the function `glm`) and using MCMC with NIMBLE.
-
 ```{r}
-# Code chunk to estimate with MLE
+my_model <- nimbleModel(
+  code = my_code,
+  data = list(
+    altitude = beetle_data$altitude_scaled,
+    y = beetle_data$beetles
+  ),
+  constants = list(
+    nobs = nrow(beetle_data)
+  ),
+  inits = list(
+    beta0 = 0,
+    beta1 = 1
+  )
+)
+
 ```
 
+**Why don't we need to provide values for `mu` anywhere?**
+
+Now we have a model object that we can use to query values of our various nodes;
+calculate the log likelihood of various components of the model; and otherwise
+explore.
+
 ```{r}
-# Code chunk to estimate with MCMC
+my_model$y[1:10]
+my_model$mu[1:10]
+
+# Calculate the log probability of y | beta0, beta1
+my_model$calculate("y")
+```
+
+
+### Run the MCMC algorithm to estimate the parameters
+
+Now we can use NIMBLE's built-in MCMC algorithm to obtain samples from the posterior distributions of `beta0` and `beta1`.
+
+```{r}
+mcmcConf <- configureMCMC(my_model)
+mcmc <- buildMCMC(mcmcConf)
+
+compiled_list <- compileNimble(my_model, mcmc)
+
+samples <- runMCMC(compiled_list$mcmc, niter = 10000, nburnin = 2000,
+                   thin = 1, nchains = 3, samplesAsCodaMCMC = TRUE)
+```
+
+
+> Note: a "model" is a structure that specifies how a number of quantites are
+statistically related. Some of those quantites are "parameters" that aren't observed
+and that we want to estimate. MCMC is an algorithm used to estimate the parameters
+in a model.
+
+
+I like to use `MCMCvis` to make summaries of my posterior distributions.
+
+```{r}
+summary <- MCMCvis::MCMCsummary(samples)
+
+summary
+```
+The output has the following columns:
+
+ * `mean`: the mean of the posterior samples drawn for the variable
+ * `sd`: the standard deviation of the posterior samples drawn for the variable
+ * `2.5%`, `50%`, `97.5%`: the 2.5th, 50th, and 97.5th quantile of the posterior samples drawn for the variable
+ * `Rhat`: Also called the Gelman-Rubin diagnostic. This value is meant to represent how close well mixed your samples are. Broadly speaking, it tells you how much each of your chains moved around relative to differences between the chains---a well-mixed posterior sample should have mean values for each chain that are close together compared to the amount of mixing each chain is doing. Rhat is always $\geq$ 1. The rule of thumb is that an R-hat value of $\leq$ 1.1 is sufficient. 
+ * `n.eff`: Number of effective samples. This value is an approximation of how many truly independent samples from the posterior distribution would have the same amount of information as your (Markovian, i.e. non-independent) posterior samples. Larger is better.
+
+> Note: Measures of model convergence like `Rhat` and `n.eff` are NEVER measures of model goodness-of-fit or model performance. They are completely different. Very poorly fitting models can converge well. Instead, these are diagnostics that let you know whether your MCMC algorithm functioned sufficiently that your samples adequately represent the joint posterior distribution of your model parameters.
+
+
+We can also visualize traceplots of our parameters using `plot()`.
+```{r}
+plot(samples[, 1])
+plot(samples[, 2])
+```
+
+**Based on these traceplots and the model diagnostics from the summary, has the model converged?**
+
+Since this is a simple GLM, we could have more easily estimated this model with MLE using the `glm` function. We can do so now and check how closely our Bayesian and ML results match. 
+
+```{r}
+
+fit <- glm(beetles ~ altitude_scaled, data = beetle_data, family = poisson(link = "log"))
+
+```
+
+
+```{r}
+# Comparing MLE and Bayesian results
+# MLE estimates
+summary(fit)
+
+# Bayesian estimates
+summary[, 1]
+
+```
+
+
+### Posterior predictive sampling
+
+Since we're out of the world of linear models, interpreting the beta estimates
+is a little harder. Next, let's use our Bayesian model to predict counts of beetles at different altitudes.
+
+We'll do this by directly working with the posterior samples we saved from our MCMC run. For a given altitude, we can directly calculate the expected abundance according to the model equation
+$$\log(\lambda) = \beta_0 + \beta_1 \times \text{altitude}$$,
+plugging in each of our samples of $\beta_0$ and $\beta_1$. Then, the resulting set of values of $\lambda$ is your approximate posterior distribution.
+
+Make sure that if you scaled your variables before estimating the model that you provide new altitudes on the same scale!
+
+```{r}
+beetle_abund_pred <- data.frame(
+  altitude = seq(-2, 2, length.out = 13),
+  mean = NA, Q025 = NA, Q095 = NA
+)
+
+# Chains don't matter here, so we combine all samples into a matrix:
+samples_mtx <- as.matrix(samples)
+# Make a matrix where each row is a MCMC iteration and each column is an altitude
+lambda_mtx <- matrix(NA, nrow = nrow(samples_mtx), ncol = nrow(beetle_abund_pred))
+
+# Loop over posterior samples and calculate expected abundance
+for (i in 1:nrow(lambda_mtx)) {
+  lambda_mtx[i, ] <- exp(samples_mtx[i, "beta0"] + 
+                         samples_mtx[i, "beta1"] * beetle_abund_pred$altitude) 
+}
+
+# Summarize posteriors
+beetle_abund_pred$mean <- colMeans(lambda_mtx)
+beetle_abund_pred$Q025 <- apply(lambda_mtx, 2, quantile, probs = 0.025)
+beetle_abund_pred$Q975 <- apply(lambda_mtx, 2, quantile, probs = 0.975)
+
+# Back-transform altitude to the correct scale
+beetle_abund_pred$altitude_unscaled <-
+          beetle_abund_pred$altitude * altitude_sd + altitude_mean
+
+# Plot the output
+library(ggplot2)
+ggplot(beetle_abund_pred, aes(altitude, mean, ymin = Q025, ymax = Q975)) +
+  geom_ribbon(alpha = 0.3) +
+  geom_line() +
+  theme_minimal() + xlab("Altitude (m)") + ylab("Expected count of beetles")
+
 ```
 
 
 
+### Exercise: modify the covariates in the model
+
+Bear in mind that for this model, we've assumed that the log of the expected
+count of beetles is linearly related to altitude. While that assumption doesn't produce a linear prediction of beetle counts (because of the link function), the curve is still constrained just like in a linear model. 
+
+However, in our exploratory analysis, it looked like beetles might have an
+optimum altitude at which they can be found. An optimum can be represented simply with a quadratic effect of the variable (think of the shape of the equation $y=-x^2$).
+
+*Exercise:* Modify the code from the preceding example to estimate a quadratic effect of altitude on beetle abundance. The model you want to estimate is defined by these equations:
+
+$$y_i \sim \text{Poisson}(\lambda_i)$$
+$$\log(\lambda_i) = \beta_0 + \beta_1 \times \text{altitude}_i + \beta_2 \times (\text{altitude}_i)^2$$
+
+You'll want to start from the initial step by defining new `nimbleCode`.
 
 
+```{r}
+# Work here:
+
+
+```
 
 
