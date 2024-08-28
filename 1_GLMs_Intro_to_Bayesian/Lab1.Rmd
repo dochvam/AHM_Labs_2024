@@ -14,12 +14,6 @@ source("../aux/Prepare_EcoData.R")
 ```
 
 
-1. Read in the data
-
-2. Plot some of the covariates. Scale them?
-
-3. Explore a few models that build up in complexity. Estimate them with NIMBLE
-
 
 ## Load the data: Beetle counts
 
@@ -69,6 +63,18 @@ plot(as.factor(beetle_data$year), beetle_data$beetles)
 **What do you notice from looking at these plots?**
 
 
+Before we provide it to the model, we want to *center and scale* altitude,
+our variable of interest.
+
+```{r}
+beetle_data$altitude_scaled <- as.numeric(scale(beetle_data$altitude))
+
+# Store the mean and sd of the originals so we can back-transform later
+altitude_mean <- mean(beetle_data$altitude)
+altitude_sd <-     sd(beetle_data$altitude)
+
+hist(beetle_data$altitude_scaled)
+```
 
 
 ### Model 1: beetles and altitude
@@ -77,10 +83,28 @@ We will start by estimating a simple GLM with one covariate on the mean abundanc
 
 $$y_i \sim \text{Poisson}(\lambda_i)$$
 $$\log(\lambda_i) = \beta_0 + \beta_1 \times \text{altitude}_i$$
+### Estiamting the model with MLE (Frequentist)
 
-Let's estimate this modeling using NIMBLE. 
+Estimating a GLM with frequentist tools is pretty straightforward. We tend to 
+use out-of-the-box model estimators. In this case, we can just use the `glm` 
+function provided by R. The code looks like the following:
 
-### Define the model code
+```{r}
+
+fit <- glm(formula = beetles ~ altitude_scaled, 
+           data = beetle_data, 
+           family = poisson(link = "log"))
+summary(fit)
+
+```
+
+
+### Estimating the model with MCMC (Bayesian)
+
+Next, let's estimate this modeling using NIMBLE. For this model, this is 
+overkill, but it's a good place to start for understanding 
+
+#### Define the model code
 
 The first step is to define model code. 
 
@@ -110,25 +134,24 @@ my_code <- nimbleCode({
 
 **How do you know if a parameter needs priors to be specified?**
 
-### Build and compile the model
+#### Build and compile the model
 
 The next step is to construct a model object using the definition we just created. At this step, we populate the values for the data and build out the structure.
 
 When you build a nimbleModel, there are four things you need to provide:
 
 1. The model code
-2. A list of **data**. Data are 
-3. A list of **constants**.
+2. A list of **data**. Data are observations in the model that are allowed to
+change or be updated later on.
+3. A list of **constants**. Constants are any quantities that aren't going to
+change. Quantities that define the dimensions of model structure, such as 
+for-loop indices or vector lengths, MUST be provided as constants. Other things
+like covariate data can often be provided as either constants or data.
+4. A list of **initial values**. These are provided for parameters not 
+specified in data/constants and not determined by other quantities in the model.
+Providing initial values is not strictly required but it's almost always a good
+idea.
 
-
-Before we provide it to the model, we want to *center and scale* altitude.
-```{r}
-beetle_data$altitude_scaled <- as.numeric(scale(beetle_data$altitude))
-
-# Store the mean and sd of the originals so we can back-transform later
-altitude_mean <- mean(beetle_data$altitude)
-altitude_sd <-     sd(beetle_data$altitude)
-```
 
 
 ```{r}
@@ -164,7 +187,7 @@ my_model$calculate("y")
 ```
 
 
-### Run the MCMC algorithm to estimate the parameters
+#### Run the MCMC algorithm to estimate the parameters
 
 Now we can use NIMBLE's built-in MCMC algorithm to obtain samples from the posterior distributions of `beta0` and `beta1`.
 
@@ -204,6 +227,7 @@ The output has the following columns:
 
 
 We can also visualize traceplots of our parameters using `plot()`.
+
 ```{r}
 plot(samples[, 1])
 plot(samples[, 2])
@@ -211,14 +235,8 @@ plot(samples[, 2])
 
 **Based on these traceplots and the model diagnostics from the summary, has the model converged?**
 
-Since this is a simple GLM, we could have more easily estimated this model with MLE using the `glm` function. We can do so now and check how closely our Bayesian and ML results match. 
 
-```{r}
-
-fit <- glm(beetles ~ altitude_scaled, data = beetle_data, family = poisson(link = "log"))
-
-```
-
+#### Compare MLE vs. MCMC estimates
 
 ```{r}
 # Comparing MLE and Bayesian results
@@ -231,7 +249,7 @@ summary[, 1]
 ```
 
 
-### Posterior predictive sampling
+#### Posterior predictive sampling
 
 Since we're out of the world of linear models, interpreting the beta estimates
 is a little harder. Next, let's use our Bayesian model to predict counts of beetles at different altitudes.
