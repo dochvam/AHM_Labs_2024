@@ -1,0 +1,279 @@
+---
+title: 'Lab 2: Generalized linear mixed models'
+author: "Ben Goldstein and Krishna Pacifici"
+date: "Fall 2024"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+source("../aux/Prepare_EcoData.R")
+
+library(tidyverse)
+```
+
+
+
+## Simulating data from a GLMM
+
+One way to learn about a model's behavior is to simulate data from the 
+model. Then, you can look at the simulated data to start to build up
+an intuition about the role of the parameters and where the information
+in the observed data lives.
+
+Let's conduct such an exercise with a GLMM, using a classic example where
+excluding random effects can dramatically change the inference.
+
+In this example, we want to know how soil moisture effects the growth
+rate of a plant. Specifically, we'll grow 100 plants in varying moisture 
+conditions, then record the number of fruit produced at the end of the
+season. Due to practical constraints, we'll grow 20 plants in each of 
+5 fields---a source of nonindependence in the data that we'll want to 
+model with random effects. We'll model these fruit counts as a Poisson
+random variable with a mean value log-linked to average soil moisture
+over the growing season.
+
+We want to simulate data from the GLMM correctly. To do that, we need to
+know what equations we want to use. Our data will be generated from the
+following GLMM:
+$$n_i \sim \text{Poisson}(\lambda_i)$$
+$$\log(\lambda_i) = \beta_0 + \beta_1 \times \text{moisture}_i +\alpha_{f(i)}$$
+$$\alpha_f \sim \mathcal{N}(0, \sigma)$$
+where $n_i$ is the count of fruit associated with plant $i$; $\lambda_i$ is the expected number of fruit associated with plant $i$; $\beta_0$ is the intercept term, interpretable as the log of the expected number of fruit when the moisture level is 0 (or at mean conditions if moisture is scaled); $\beta_1$ is the effect of increased moisture on the log-scale expected number of fruit; $\alpha_{f(i)}$ is a normally distributed random effect of whichever field $f$ contains plant $i$; and $\sigma$ is the standard deviation of the normal random effect.
+
+It sounds like there's a lot going on, but when we go to simulate the data, it'll end up being relatively simple. So, let's do that!
+
+```{r}
+# Set a seed for replicability
+set.seed(59670)
+
+# Number of plants, number of fields
+n_plants <- 100
+n_fields <- 5
+
+# create a vector of IDs indicating which field contained each plant.
+field <- rep(1:n_fields, each = n_plants / n_fields)
+
+# Simulate a moisture level for each field. The range of moisture is not even across each field. 
+# Keep in mind that a linear model does not make any assumptions about the distribution of covariate data!
+moisture <- c(runif(n_plants / n_fields, 2, 12),
+              runif(n_plants / n_fields, 5, 15),
+              runif(n_plants / n_fields, 6, 18),
+              runif(n_plants / n_fields, 8, 18),
+              runif(n_plants / n_fields, 9, 18))
+
+# Center and scale these for convenience
+moisture <- as.numeric(scale(moisture))
+
+# So far we've just simulated moisture_i arbitrarily. Now let's get to the model. 
+# We need to pick values for true parameters. (Remember these are log-scale)
+beta0 <- 1.5
+beta1 <- 0.6
+sigma <- 1.1
+
+# We need to simulate a random effect level for each field
+alpha <- rnorm(n = n_fields, mean = 0, sd = sigma)
+alpha
+
+# Now we can calculate lambda deterministically, following the model eqn
+log_lambda <- beta0 + beta1 * moisture + alpha[field] # <- nested indexing
+lambda <- exp(log_lambda)
+
+# Finally, draw random fruit counts from the Poisson
+n_fruit <- rpois(n = n_plants, lambda)
+
+# Put these in a data.frame
+dat <- data.frame(
+  plant_ID = 1:n_plants,
+  field = field,
+  n_fruit = n_fruit,
+  moisture_scaled = moisture,
+  true_log_lambda = log_lambda
+)
+
+head(dat)
+
+
+# Let's plot the data!
+ggplot(dat, aes(moisture_scaled, n_fruit)) +
+  geom_point() +
+  xlab("Moisture") + ylab("Number of fruit") +
+  theme_minimal() +
+  geom_smooth(method = "lm")
+
+```
+
+Doesn't look like there's much of a relationship between these variables in the simulated data. But if we explore how these results vary by field, the relationship becomes clearer.
+
+```{r}
+# Let's plot the data!
+ggplot(dat,
+       aes(moisture_scaled, n_fruit, 
+                 col = as.factor(field)), group = field) +
+  geom_point() +
+  xlab("Moisture") + ylab("Number of fruit") +
+  theme_minimal() +
+  geom_smooth(method = "lm")
+
+```
+
+Within each field, there's a positive relationship between moisture and number of fruit, but this is obscured due to the variation betwen fields. There are some field-specific factors that apparently make growing much worse in certain fields.
+
+Notice how the log link function used to generate the data distorts the seemingly linear relationship across groups.
+
+Let's compare estimates from a GLM (which ignores the random effect) vs. a GLMM (which includes the random effect):
+
+```{r}
+glm_fit <- glm(n_fruit ~ moisture_scaled, family = "poisson", data = dat)
+summary(glm_fit)
+
+library(lme4)
+glmm_fit <- glmer(n_fruit ~ moisture_scaled + (1 | field), 
+                  family = "poisson", data = dat)
+summary(glmm_fit)
+```
+
+In this case, the GLM correctly identified a positive relationship, but it underestimated the effect size, while the GLMM did a better job but still ultimately produced an underestimate.
+
+## Bayesian estimation of a GLMM
+
+### Back to beetles
+
+Let's return to the beetles survey data from Lab 1. Recall that beetles were surveyed at a number of locations
+
+```{r}
+beetle_data <- EcoData::volcanoisland
+beetle_data$altitude_scaled <- as.numeric(scale(beetle_data$altitude))
+
+head(beetle_data)
+
+```
+
+**What sources of potential nonindependence did we ignore in the previous analysis?**
+
+
+
+### A GLMM is a GLM plus random effects
+
+Let's build a GLMM by modifying the Lab 1 model code. The old model code
+is here:
+
+```{r}
+library(nimble)
+
+GLM_code <- nimbleCode({
+  
+  # Data likelihood
+  for (i in 1:nobs) {
+    log(mu[i]) <- beta0 + beta1 * altitude[i] + beta2 * altitude[i]^2
+    y[i] ~ dpois(mu[i])
+  }
+  
+  # Priors for our parameters
+  beta0 ~ dnorm(0, sd = 10)
+  beta1 ~ dnorm(0, sd = 10)
+  beta2 ~ dnorm(0, sd = 10)
+})
+
+```
+
+Now, we want to add in a random effect of year.
+
+```{r}
+GLMM_code <- nimbleCode({
+  # Data likelihood
+  for (i in 1:nobs) {
+    log(mu[i]) <- beta0 + beta1 * altitude[i] + beta2 * altitude[i]^2 +
+                    ranef_year[year[i]]
+    y[i] ~ dpois(mu[i])
+  }
+  
+  # Priors for our parameters
+  beta0 ~ dnorm(0, sd = 10)
+  beta1 ~ dnorm(0, sd = 10)
+  beta2 ~ dnorm(0, sd = 10)
+  sigma ~ dgamma(shape = 1, rate = 1)
+  
+  # Random effect distribution
+  for (i in 1:n_year) {
+    ranef_year[i] ~ dnorm(0, sd = sigma)
+  }
+})
+
+```
+
+Notice how the modification we made to the `log(mu[i])` calculation looks 
+a lot like what we did when we simulated data.
+
+Let's go ahead and estimate the model with MCMC as we did in the last lab.
+I'll indicate with comments where I've added new lines.
+
+```{r}
+my_GLMM <- nimbleModel(
+  code = GLMM_code,
+  data = list(
+    altitude = beetle_data$altitude_scaled,
+    y = beetle_data$beetles
+  ),
+  constants = list(
+    nobs = nrow(beetle_data),
+    n_year = length(unique(beetle_data$year)),
+    year = beetle_data$year # year
+  ),
+  inits = list(
+    beta0 = 0,
+    beta1 = 1,
+    beta2 = 1,
+    sigma = 1, # new
+    ranef_year = rnorm(length(unique(beetle_data$year)), 0, 1) # new
+  )
+)
+
+```
+
+I'll briefly note that, since year is used as an index, it's very important
+that it's provided as an integer starting at 1. Conveniently, it's already
+formatted that way, but if it weren't; for example, if it were provided
+as the actual year (e.g. 2006, 2007...), we'd need to convert it ourselves.
+
+```{r}
+mcmcConf <- configureMCMC(my_GLMM)
+mcmc <- buildMCMC(mcmcConf)
+
+compiled_list <- compileNimble(my_GLMM, mcmc)
+
+samples <- runMCMC(compiled_list$mcmc, niter = 10000, nburnin = 2000,
+                   thin = 1, nchains = 3, samplesAsCodaMCMC = TRUE)
+
+summary <- MCMCvis::MCMCsummary(samples)
+
+summary
+
+```
+
+
+
+
+## Exercise: Estimating a GLMM to explain iNaturalist reporting rates
+
+Let's apply what we've learned about GLMMs to a new dataset. 
+In this example, we'll use a slightly nontradition version of a GLMM---
+one that we'll need NIMBLE to estimate.
+
+[iNaturalist](inaturalist.org) is a participatory science repository that
+collects amateur observations from .
+
+I've processed some iNaturalist data and obtained reported counts of 
+eastern gray squirrels in 
+
+
+```{r}
+inat_data <- read_csv()
+
+```
+
+
+
+

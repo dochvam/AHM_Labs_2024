@@ -71,7 +71,7 @@ beetle_data$altitude_scaled <- as.numeric(scale(beetle_data$altitude))
 
 # Store the mean and sd of the originals so we can back-transform later
 altitude_mean <- mean(beetle_data$altitude)
-altitude_sd <-     sd(beetle_data$altitude)
+altitude_sd   <- sd(beetle_data$altitude)
 
 hist(beetle_data$altitude_scaled)
 ```
