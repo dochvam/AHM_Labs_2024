@@ -121,18 +121,17 @@ my_code <- nimbleCode({
   # Priors for our two parameters
   beta0 ~ dnorm(0, sd = 10)
   beta1 ~ dnorm(0, sd = 10)
-  
 })
 
 ```
 
-**What do these priors for beta0 and beta1 mean?**
+**What do these priors for `beta0` and `beta1` mean?**
 
-**What do they do mechanically in the model?**
-
-**What do they do in the MCMC algorithm?**
+**Do we need a prior for `mu`?**
 
 **How do you know if a parameter needs priors to be specified?**
+
+
 
 #### Build and compile the model
 
@@ -172,19 +171,16 @@ my_model <- nimbleModel(
 
 ```
 
-**Why don't we need to provide values for `mu` anywhere?**
 
-Now we have a model object that we can use to query values of our various nodes;
-calculate the log likelihood of various components of the model; and otherwise
-explore.
-
-```{r}
-my_model$y[1:10]
-my_model$mu[1:10]
-
-# Calculate the log probability of y | beta0, beta1
-my_model$calculate("y")
-```
+<!-- Now we have a model object that we can use to query values of our various nodes; -->
+<!-- calculate the log likelihood of various components of the model; and otherwise -->
+<!-- explore. -->
+<!-- ```{r} -->
+<!-- my_model$y[1:10] -->
+<!-- my_model$mu[1:10] -->
+<!-- # Calculate the log probability of y | beta0, beta1 -->
+<!-- my_model$calculate("y") -->
+<!-- ``` -->
 
 
 #### Run the MCMC algorithm to estimate the parameters
@@ -194,7 +190,6 @@ Now we can use NIMBLE's built-in MCMC algorithm to obtain samples from the poste
 ```{r}
 mcmcConf <- configureMCMC(my_model)
 mcmc <- buildMCMC(mcmcConf)
-
 compiled_list <- compileNimble(my_model, mcmc)
 
 samples <- runMCMC(compiled_list$mcmc, niter = 10000, nburnin = 2000,
