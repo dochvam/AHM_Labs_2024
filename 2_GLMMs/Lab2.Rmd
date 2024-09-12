@@ -9,7 +9,7 @@ output: html_document
 
 knitr::opts_chunk$set(echo = TRUE)
 
-source("../aux/Prepare_EcoData.R")
+source("../helper/Prepare_EcoData.R")
 
 library(tidyverse)
 ```
