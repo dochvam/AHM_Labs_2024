@@ -179,14 +179,14 @@ GLM_code <- nimbleCode({
 
 ```
 
-Now, we want to add in a random effect of year.
+Now, we want to add in a random intercept effect of each plot.
 
 ```{r}
 GLMM_code <- nimbleCode({
   # Data likelihood
   for (i in 1:nobs) {
     log(mu[i]) <- beta0 + beta1 * altitude[i] + beta2 * altitude[i]^2 +
-                    ranef_year[year[i]]
+                    ranef_plot[plot[i]]
     y[i] ~ dpois(mu[i])
   }
   
@@ -197,8 +197,8 @@ GLMM_code <- nimbleCode({
   sigma ~ dgamma(shape = 1, rate = 1)
   
   # Random effect distribution
-  for (i in 1:n_year) {
-    ranef_year[i] ~ dnorm(0, sd = sigma)
+  for (i in 1:n_plot) {
+    ranef_plot[i] ~ dnorm(0, sd = sigma)
   }
 })
 
@@ -219,24 +219,27 @@ my_GLMM <- nimbleModel(
   ),
   constants = list(
     nobs = nrow(beetle_data),
-    n_year = length(unique(beetle_data$year)),
-    year = beetle_data$year # year
+    n_plot = length(unique(beetle_data$plot)),
+    plot = as.numeric(beetle_data$plot) # plot
   ),
   inits = list(
     beta0 = 0,
     beta1 = 1,
     beta2 = 1,
     sigma = 1, # new
-    ranef_year = rnorm(length(unique(beetle_data$year)), 0, 1) # new
+    ranef_plot = rnorm(length(unique(beetle_data$plot)), 0, 1) # new
   )
 )
 
 ```
 
-I'll briefly note that, since year is used as an index, it's very important
+**What if we wanted a random slope for altitude, by year?**
+**What if we wanted a random slope for altitude, by plot?**
+
+I'll briefly note that, since plot is used as an index, it's very important
 that it's provided as an integer starting at 1. Conveniently, it's already
 formatted that way, but if it weren't; for example, if it were provided
-as the actual year (e.g. 2006, 2007...), we'd need to convert it ourselves.
+some string (e.g. A1, A2...), we'd need to convert it ourselves.
 
 ```{r}
 mcmcConf <- configureMCMC(my_GLMM)
@@ -263,10 +266,10 @@ In this example, we'll use a slightly nontradition version of a GLMM---
 one that we'll need NIMBLE to estimate.
 
 [iNaturalist](inaturalist.org) is a participatory science repository that
-collects amateur observations from .
+collects amateur observations from around the world.
 
 I've processed some iNaturalist data and obtained reported counts of 
-eastern gray squirrels in 
+eastern gray squirrels in each of many grid cells. 
 
 
 ```{r}
@@ -298,7 +301,7 @@ $$\alpha_{\text{year}} \sim \mathcal{N}(0, \sigma_{\text{year}})$$
 $$\gamma_{\text{cell}} \sim \mathcal{N}(0, \sigma_{\text{cell}})$$
 So what we have here is a GLMM with two levels of random effects that also includes an effort offset.
 
-Let's attempt to 
+Let's attempt to implement this model in NIMBLE.
 
 ```{r}
 

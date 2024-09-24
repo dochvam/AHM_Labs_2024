@@ -26,7 +26,6 @@ The data are loaded in a `data.frame` called
 
 ```{r}
 beetle_data <- EcoData::volcanoisland
-
 ```
 
 Let's look at the histogram of counts.
@@ -83,6 +82,7 @@ We will start by estimating a simple GLM with one covariate on the mean abundanc
 
 $$y_i \sim \text{Poisson}(\lambda_i)$$
 $$\log(\lambda_i) = \beta_0 + \beta_1 \times \text{altitude}_i$$
+$$\lambda_i = e^{\beta_0 + \beta_1 \times \text{altitude}_i}$$
 ### Estiamting the model with MLE (Frequentist)
 
 Estimating a GLM with frequentist tools is pretty straightforward. We tend to 
@@ -114,8 +114,8 @@ my_code <- nimbleCode({
   
   # Data likelihood
   for (i in 1:nobs) {
-    log(mu[i]) <- beta0 + beta1 * altitude[i]
-    y[i] ~ dpois(mu[i])
+    log(lambda[i]) <- beta0 + beta1 * altitude[i]
+    y[i] ~ dpois(lambda[i])
   }
   
   # Priors for our two parameters
@@ -192,7 +192,7 @@ mcmcConf <- configureMCMC(my_model)
 mcmc <- buildMCMC(mcmcConf)
 compiled_list <- compileNimble(my_model, mcmc)
 
-samples <- runMCMC(compiled_list$mcmc, niter = 10000, nburnin = 2000,
+samples <- runMCMC(compiled_list$mcmc, niter = 500, nburnin = 0,
                    thin = 1, nchains = 3, samplesAsCodaMCMC = TRUE)
 ```
 
@@ -256,6 +256,7 @@ plugging in each of our samples of $\beta_0$ and $\beta_1$. Then, the resulting 
 Make sure that if you scaled your variables before estimating the model that you provide new altitudes on the same scale!
 
 ```{r}
+
 beetle_abund_pred <- data.frame(
   altitude = seq(-2, 2, length.out = 13),
   mean = NA, Q025 = NA, Q095 = NA

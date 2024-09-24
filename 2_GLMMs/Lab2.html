@@ -597,12 +597,12 @@ code is here:</p>
   beta1 ~ dnorm(0, sd = 10)
   beta2 ~ dnorm(0, sd = 10)
 })</code></pre>
-<p>Now, we want to add in a random effect of year.</p>
+<p>Now, we want to add in a random intercept effect of each plot.</p>
 <pre class="r"><code>GLMM_code &lt;- nimbleCode({
   # Data likelihood
   for (i in 1:nobs) {
     log(mu[i]) &lt;- beta0 + beta1 * altitude[i] + beta2 * altitude[i]^2 +
-                    ranef_year[year[i]]
+                    ranef_plot[plot[i]]
     y[i] ~ dpois(mu[i])
   }
   
@@ -613,8 +613,8 @@ code is here:</p>
   sigma ~ dgamma(shape = 1, rate = 1)
   
   # Random effect distribution
-  for (i in 1:n_year) {
-    ranef_year[i] ~ dnorm(0, sd = sigma)
+  for (i in 1:n_plot) {
+    ranef_plot[i] ~ dnorm(0, sd = sigma)
   }
 })</code></pre>
 <p>Notice how the modification we made to the <code>log(mu[i])</code>
@@ -629,15 +629,15 @@ lab. I’ll indicate with comments where I’ve added new lines.</p>
   ),
   constants = list(
     nobs = nrow(beetle_data),
-    n_year = length(unique(beetle_data$year)),
-    year = beetle_data$year # year
+    n_plot = length(unique(beetle_data$plot)),
+    plot = as.numeric(beetle_data$plot) # plot
   ),
   inits = list(
     beta0 = 0,
     beta1 = 1,
     beta2 = 1,
     sigma = 1, # new
-    ranef_year = rnorm(length(unique(beetle_data$year)), 0, 1) # new
+    ranef_plot = rnorm(length(unique(beetle_data$plot)), 0, 1) # new
   )
 )</code></pre>
 <pre><code>## Defining model</code></pre>
@@ -646,21 +646,24 @@ lab. I’ll indicate with comments where I’ve added new lines.</p>
 <pre><code>## Running calculate on model
 ##   [Note] Any error reports that follow may simply reflect missing values in model variables.</code></pre>
 <pre><code>## Checking model sizes and dimensions</code></pre>
-<p>I’ll briefly note that, since year is used as an index, it’s very
+<p><strong>What if we wanted a random slope for altitude, by
+year?</strong> <strong>What if we wanted a random slope for altitude, by
+plot?</strong></p>
+<p>I’ll briefly note that, since plot is used as an index, it’s very
 important that it’s provided as an integer starting at 1. Conveniently,
 it’s already formatted that way, but if it weren’t; for example, if it
-were provided as the actual year (e.g. 2006, 2007…), we’d need to
-convert it ourselves.</p>
+were provided some string (e.g. A1, A2…), we’d need to convert it
+ourselves.</p>
 <pre class="r"><code>mcmcConf &lt;- configureMCMC(my_GLMM)</code></pre>
 <pre><code>## ===== Monitors =====
 ## thin = 1: beta0, beta1, beta2, sigma
 ## ===== Samplers =====
-## RW sampler (14)
+## RW sampler (104)
 ##   - beta0
 ##   - beta1
 ##   - beta2
 ##   - sigma
-##   - ranef_year[]  (10 elements)</code></pre>
+##   - ranef_plot[]  (100 elements)</code></pre>
 <pre class="r"><code>mcmc &lt;- buildMCMC(mcmcConf)
 
 compiled_list &lt;- compileNimble(my_GLMM, mcmc)</code></pre>
@@ -681,11 +684,11 @@ compiled_list &lt;- compileNimble(my_GLMM, mcmc)</code></pre>
 <pre class="r"><code>summary &lt;- MCMCvis::MCMCsummary(samples)
 
 summary</code></pre>
-<pre><code>##             mean         sd       2.5%        50%      97.5% Rhat n.eff
-## beta0  2.7086430 0.67383729  1.3235167  3.0573745  3.4036240 5.36    14
-## beta1  0.1880047 0.02148774  0.1455222  0.1879472  0.2306352 1.00  5228
-## beta2 -2.0327088 0.02847502 -2.0891068 -2.0323163 -1.9765755 1.00  3208
-## sigma  0.8052814 0.53871162  0.3182764  0.5495563  2.1714238 2.84  2228</code></pre>
+<pre><code>##             mean         sd        2.5%        50%      97.5% Rhat n.eff
+## beta0  2.8731827 0.14279760  2.55247470  2.8876684  3.1063024 1.04    33
+## beta1  0.2297355 0.08988334  0.05230429  0.2277941  0.4029061 1.03   160
+## beta2 -1.9266378 0.11562566 -2.15811209 -1.9246272 -1.6993328 1.05   144
+## sigma  0.7701602 0.06578964  0.65284366  0.7658423  0.9102569 1.01  2344</code></pre>
 </div>
 </div>
 <div id="exercise-estimating-a-glmm-to-explain-inaturalist-reporting-rates" class="section level2">
@@ -695,9 +698,9 @@ rates</h2>
 example, we’ll use a slightly nontradition version of a GLMM— one that
 we’ll need NIMBLE to estimate.</p>
 <p><a href="inaturalist.org">iNaturalist</a> is a participatory science
-repository that collects amateur observations from .</p>
+repository that collects amateur observations from around the world.</p>
 <p>I’ve processed some iNaturalist data and obtained reported counts of
-eastern gray squirrels in</p>
+eastern gray squirrels in each of many grid cells.</p>
 <pre class="r"><code>inat_data &lt;- read_csv(&quot;../data/inat_EGSq_dat.csv&quot;)</code></pre>
 <pre><code>## Rows: 18417 Columns: 8
 ## ── Column specification ────────────────────────────────────────────────────────
@@ -755,7 +758,7 @@ observations of eastern gray squirrels in cell <span class="math inline">\(i\)</
 \sigma_{\text{year}})\]</span> <span class="math display">\[\gamma_{\text{cell}} \sim \mathcal{N}(0,
 \sigma_{\text{cell}})\]</span> So what we have here is a GLMM with two
 levels of random effects that also includes an effort offset.</p>
-<p>Let’s attempt to</p>
+<p>Let’s attempt to implement this model in NIMBLE.</p>
 <pre class="r"><code>iNat_GLMM_code &lt;- nimbleCode({
 
   # Code goes here
