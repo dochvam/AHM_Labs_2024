@@ -149,7 +149,8 @@ samples <- runMCMC(compiled_list$mcmc, niter = 10000, nburnin = 2000,
 summary <- MCMCvis::MCMCsummary(samples)
 
 summary
-inat_data <- read_csv("../data/inat_EGSq_dat.csv")
+
+inat_data <- read_csv("data/inat_EGSq_dat.csv")
 
 head(inat_data)
 
