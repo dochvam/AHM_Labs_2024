@@ -49,9 +49,7 @@ we manage. We have two management units. We went to 16 sites in each management 
 
 
 ```{r}
-# download.file("")
-
-dat <- read_csv("woodpecker_data.csv")
+dat <- read_csv("https://raw.githubusercontent.com/dochvam/AHM_Labs_2024/main/3_Abundance/woodpecker_data.csv")
 
 summary(dat)
 ```
@@ -66,7 +64,7 @@ $$\text{logit}(p_{ij}) = \alpha_0 + \alpha_1 \times \text{Temp}_{ij} + \alpha_2 
 $$\text{log}(\lambda_{i}) = \beta_0 + \beta_1 \times \text{Elev}_{i} + \beta_2 \times \text{Habitat}_{i}$$
 
 
-#### Define and estimate the model 
+#### Define and estimate the model
 
 Write the nimbleCode to estimate this model.
 
@@ -106,7 +104,7 @@ mod <- nimbleModel(
 Use the NIMBLE workflow to run an MCMC algorithm and obtain posterior samples.
 
 ```{r}
-cmod <- compileNimble(cmod)
+cmod <- compileNimble(mod)
 mcmc <- buildMCMC(mod)
 cMCMC <- compileNimble(mcmc)
 
@@ -124,7 +122,11 @@ We should now have estimates of our $\alpha$ and $\beta$ parameters.
 
 In the previous model, we ignored potential non-independence arising from the fact that our data are grouped by management units. There could be random effects on either detection or abundance.
 
-In the following code chunk, replicate the previous model, but now include a random effect
+In the following code chunk, replicate the previous model, but now include a random effect of management unit on abundance.
+
+```{r}
+
+```
 
 
 
