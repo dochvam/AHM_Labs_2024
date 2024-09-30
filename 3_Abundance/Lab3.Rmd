@@ -1,0 +1,155 @@
+---
+title: 'Lab 3: hierarchical N-mixture models'
+author: "Ben Goldstein and Krishna Pacifici"
+date: "Fall 2024"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+# Install/load the necessary packages and 
+tryCatch(library(devtools), 
+         error = function(e) {
+           install.packages("devtools")
+           library(devtools)
+         })
+tryCatch(library(EcoData), 
+         error = function(e) {
+           devtools::install_github(repo = "TheoreticalEcology/EcoData", 
+                                    dependencies = T, build_vignettes = T)
+           library(EcoData)
+         })
+tryCatch(library(tidyverse), 
+         error = function(e) {
+           install.packages("tidyverse")
+           library(tidyverse)
+         })
+tryCatch(library(nimble), 
+         error = function(e) {
+           install.packages("nimble")
+           library(nimble)
+         })
+
+```
+
+Topics:
+
+ - Estimate an N-mixture model
+ - Include a categorical fixed effect
+ - Include a random effect
+ - Predict from the model using derived quantities
+
+
+#### Estimating the abundance of pileated woodpeckers
+
+We're estimating the abundance of pileated woodpeckers on some land that
+we manage. We have two management units. We went to 16 sites in each management unit 4 times each and counted how many 
+
+
+```{r}
+# download.file("")
+
+dat <- read_csv("woodpecker_data.csv")
+
+summary(dat)
+```
+
+We want to estimate an N-mixture model to understand how the abundance of woodpeckers varies with elevation and habitat. We also want to take into account nonindependence between sites nested in four different management units and we want to account for variation in detection probability due to temperature and habitat type.
+
+The N-mixture model we want to fit is defined by the following equations:
+
+$$y_{ij} \sim \text{Binom}(N_i, p_{ij})$$
+$$N \sim \text{Pois}(\lambda_i)$$
+$$\text{logit}(p_{ij}) = \alpha_0 + \alpha_1 \times \text{Temp}_{ij} + \alpha_2 \times \text{Habitat}_{i}$$
+$$\text{log}(\lambda_{i}) = \beta_0 + \beta_1 \times \text{Elev}_{i} + \beta_2 \times \text{Habitat}_{i}$$
+
+
+#### Define and estimate the model 
+
+Write the nimbleCode to estimate this model.
+
+```{r}
+
+nmix_code <- nimbleCode({
+  # Model code goes here:
+  
+  
+  # Priors go here:
+  alpha0 ~ dnorm(0, 1)
+  #   What are the parameters to be estimated?
+})
+
+```
+
+
+Build the model. 
+(HINT: you might need to adjust some of your covariate inputs before they're ready for NIMBLE.)
+
+```{r}
+mod <- nimbleModel(
+  nmix_code,
+  constants = list(
+    
+  ),
+  data = list(
+    
+  ),
+  inits = list( 
+    
+  )
+)
+```
+
+
+Use the NIMBLE workflow to run an MCMC algorithm and obtain posterior samples.
+
+```{r}
+cmod <- compileNimble(cmod)
+mcmc <- buildMCMC(mod)
+cMCMC <- compileNimble(mcmc)
+
+samples <- runMCMC(cMCMC, niter = 5000, nburnin = 1000, nchains = 2, thin = 1)
+
+summary1 <- MCMCvis::MCMCsummary(samples)
+
+summary1
+```
+
+We should now have estimates of our $\alpha$ and $\beta$ parameters.
+
+
+#### Add random effects
+
+In the previous model, we ignored potential non-independence arising from the fact that our data are grouped by management units. There could be random effects on either detection or abundance.
+
+In the following code chunk, replicate the previous model, but now include a random effect
+
+
+
+#### Derive a predicted abundance 
+
+Now that we have a satisfactory model, we want to use it to make predictions of mean abundance under different conditions. We can do this by making
+
+We can create a dataset that contains hypothetical input data for a number of sites we can imagine predicting abundance at.
+
+```{r}
+# use expand.grid to get all combinations of these different variables
+prediction_sites <- data.frame(expand.grid(
+  elevation = 50:100,
+  habitat = c("forest", "mixed_forest_developed"),
+  management_unit = 1:4
+))
+
+head(prediction_sites)
+```
+
+Define, build, and estimate a new nimbleModel to predict the mean abundance ($\lambda_i$) at each of these hypothetical sites.
+
+```{r}
+
+```
+
+
+

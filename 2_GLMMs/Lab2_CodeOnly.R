@@ -2,8 +2,6 @@ source("helper/Prepare_EcoData.R")
 
 library(tidyverse)
 
-
-
 # Set a seed for replicability
 set.seed(59670)
 

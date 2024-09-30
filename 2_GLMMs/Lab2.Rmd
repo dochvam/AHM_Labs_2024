@@ -15,7 +15,6 @@ library(tidyverse)
 ```
 
 
-
 ## Simulating data from a GLMM
 
 One way to learn about a model's behavior is to simulate data from the 
@@ -39,7 +38,7 @@ We want to simulate data from the GLMM correctly. To do that, we need to
 know what equations we want to use. Our data will be generated from the
 following GLMM:
 $$n_i \sim \text{Poisson}(\lambda_i)$$
-$$\log(\lambda_i) = \beta_0 + \beta_1 \times \text{moisture}_i +\alpha_{f(i)}$$
+$$\log(\lambda_i) = \beta_0 + \beta_1 \times \text{moisture}_i + \alpha_{f(i)}$$
 $$\alpha_f \sim \mathcal{N}(0, \sigma)$$
 where $n_i$ is the count of fruit associated with plant $i$; $\lambda_i$ is the expected number of fruit associated with plant $i$; $\beta_0$ is the intercept term, interpretable as the log of the expected number of fruit when the moisture level is 0 (or at mean conditions if moisture is scaled); $\beta_1$ is the effect of increased moisture on the log-scale expected number of fruit; $\alpha_{f(i)}$ is a normally distributed random effect of whichever field $f$ contains plant $i$; and $\sigma$ is the standard deviation of the normal random effect.
 
@@ -133,6 +132,20 @@ library(lme4)
 glmm_fit <- glmer(n_fruit ~ moisture_scaled + (1 | field), 
                   family = "poisson", data = dat)
 summary(glmm_fit)
+
+
+
+dat$predicted <- predict(glmm_fit, type = "link")
+
+ggplot(dat,
+       aes(moisture_scaled, n_fruit, 
+                 col = as.factor(field)), group = field) +
+  # geom_point() +
+  geom_line(mapping = aes(moisture_scaled, predicted, col = as.factor(field))) +
+  xlab("Moisture") + ylab("Number of fruit") +
+  theme_minimal()
+
+
 ```
 
 In this case, the GLM correctly identified a positive relationship, but it underestimated the effect size, while the GLMM did a better job but still ultimately produced an underestimate.
@@ -186,7 +199,7 @@ GLMM_code <- nimbleCode({
   # Data likelihood
   for (i in 1:nobs) {
     log(mu[i]) <- beta0 + beta1 * altitude[i] + beta2 * altitude[i]^2 +
-                    ranef_plot[plot[i]]
+                    alpha[plot[i]]
     y[i] ~ dpois(mu[i])
   }
   
@@ -194,11 +207,11 @@ GLMM_code <- nimbleCode({
   beta0 ~ dnorm(0, sd = 10)
   beta1 ~ dnorm(0, sd = 10)
   beta2 ~ dnorm(0, sd = 10)
-  sigma ~ dgamma(shape = 1, rate = 1)
+  sigma ~ dunif(0, 10)
   
   # Random effect distribution
   for (i in 1:n_plot) {
-    ranef_plot[i] ~ dnorm(0, sd = sigma)
+    alpha[i] ~ dnorm(0, sd = sigma)
   }
 })
 
