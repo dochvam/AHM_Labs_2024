@@ -199,7 +199,7 @@ GLMM_code <- nimbleCode({
   # Data likelihood
   for (i in 1:nobs) {
     log(mu[i]) <- beta0 + beta1 * altitude[i] + beta2 * altitude[i]^2 +
-                    alpha[plot[i]]
+                    ranef_plot[plot[i]]
     y[i] ~ dpois(mu[i])
   }
   
@@ -211,7 +211,7 @@ GLMM_code <- nimbleCode({
   
   # Random effect distribution
   for (i in 1:n_plot) {
-    alpha[i] ~ dnorm(0, sd = sigma)
+    ranef_plot[i] ~ dnorm(0, sd = sigma)
   }
 })
 
@@ -243,11 +243,7 @@ my_GLMM <- nimbleModel(
     ranef_plot = rnorm(length(unique(beetle_data$plot)), 0, 1) # new
   )
 )
-
 ```
-
-**What if we wanted a random slope for altitude, by year?**
-**What if we wanted a random slope for altitude, by plot?**
 
 I'll briefly note that, since plot is used as an index, it's very important
 that it's provided as an integer starting at 1. Conveniently, it's already
@@ -266,6 +262,8 @@ samples <- runMCMC(compiled_list$mcmc, niter = 10000, nburnin = 2000,
 summary <- MCMCvis::MCMCsummary(samples)
 
 summary
+
+plot(samples[, 4])
 
 ```
 
@@ -286,7 +284,11 @@ eastern gray squirrels in each of many grid cells.
 
 
 ```{r}
-inat_data <- read_csv("../data/inat_EGSq_dat.csv")
+# Download the file from github
+download.file("https://raw.githubusercontent.com/dochvam/AHM_Labs_2024/main/data/inat_EGSq_dat.csv", 
+              "inat_EGSq_dat.csv")
+
+inat_data <- read_csv("inat_EGSq_dat.csv")
 
 head(inat_data)
 ```
@@ -306,9 +308,8 @@ We want to understand how squirrel counts, per unit effort, vary according to fo
 The model we want to estimate is going to be defined by the following equations. First, the observed count of squirrels in cell/year $i$, $y_i$, is distributed as
 $$y_i \sim \text{Poisson}(\text{N}_i \mu_i)$$
 where $N_i$ is the **observed** total number of iNaturalist observations of mammals in the cell year (effort) and $mu_i$ is the expected number of observations of eastern gray squirrels in cell $i$. Then,
-$$\log(\mu_i) = \beta_0 + \beta_1 \times \text{Popden}_i 
-+ \beta_2 \times \text{EVI}_i + \beta_3 \times \text{Temp}_i +
-\beta_4 \times \text{Precip}_i + \alpha_{\text{year}(i)} + \gamma_{\text{cell}(i)}$$
+$$\log(\mu_i) = \beta_0 + \beta_1 \times \text{EVI}_i + \beta_2 \times \text{Temp}_i +
+\beta_3 \times \text{Precip}_i + \alpha_{\text{year}(i)} + \gamma_{\text{cell}(i)}$$
 and 
 $$\alpha_{\text{year}} \sim \mathcal{N}(0, \sigma_{\text{year}})$$
 $$\gamma_{\text{cell}} \sim \mathcal{N}(0, \sigma_{\text{cell}})$$
@@ -321,10 +322,26 @@ Let's attempt to implement this model in NIMBLE.
 iNat_GLMM_code <- nimbleCode({
 
   # Code goes here
+  for (i in 1:nobs) {
+    # Deterministic calculation of the expected per-obs. reporting rate
+    log(mu[i]) <- beta0 + beta1 * evi[i] +
+      beta2 * temp[i] + beta3 * precip[i] + alpha[year[i]] + gamma[cell[i]]
+    
+    # probability distribution for y; observed number of obs. (N) times per-obs
+    # reporting rate (mu) is the expected value
+    y[i] ~ dpois(mu[i] * N[i])
+  }
+  
+  # Random effects distributions
+  for (i in 1:nyear) {
+    alpha[i] ~ dnorm(0, sd = sigma_year)
+  }
+  for (i in 1:ncell) {
+    gamma[i] ~ dnorm(0, sd = sigma_cell)
+  }
   
   
-  
-  # Priors
+  # Priors for the parameters we want to estimate
   beta0 ~ dnorm(0, sd = 5)
   beta1 ~ dnorm(0, sd = 5)
   beta2 ~ dnorm(0, sd = 5)
@@ -343,20 +360,60 @@ Now, build the model.
 iNat_GLMM_model <- nimbleModel(
   iNat_GLMM_code,
   constants = list(
-    
+    # Data dimensions
+    nobs = nrow(inat_data),
+    nyear = length(unique(inat_data$year)),
+    ncell = length(unique(inat_data$grid_cell)),
+    # Nested indexes for random effects. We need to manipulate these to make sure
+    # they go from 1:N.
+    year = inat_data$year - 1999,
+    cell = as.numeric(as.factor(inat_data$grid_cell)) # <- trick for getting these on 1:N
   ),
   data = list(
-    
+    y = inat_data$squirrel,
+    N = inat_data$total,
+    popden = as.numeric(scale(inat_data$Human_popden_sqrt)),
+    evi = as.numeric(scale(inat_data$EVI_mean)),
+    temp = as.numeric(scale(inat_data$Temp_max)),
+    precip = as.numeric(scale(inat_data$Precipitation))
   ), 
   inits = list(
-    
+    beta0 = 1, beta1 = 1, beta2 = 1, beta3 = 1, beta4 = 1,
+    sigma_year = 1, sigma_cell = 1,
+    gamma = rnorm(length(unique(inat_data$grid_cell)), 0, 1),
+    alpha = rnorm(length(unique(inat_data$year)), 0, 1)
   )
 )
 ```
 
-Finally, add the rest of the model estimation workflow here.
+Finally, add the rest of the model estimation workflow here. I'm copy/pasting
+what we've now seen a bunch of times and making sure that I'm passing in the
+correct model.
+
+Expect this to run more slowly than the examples up til now, for two reasons.
+One is that the dataset is bigger than anything we've worked with. The other
+reason is that the MCMC algorithm has to draw samples for every individual random 
+effect, so by including a random effect in this model, we've gone from having
+5 samplers (betas) to 100s (betas + sigmas + individual levels for each year/cell).
+
+For that reason, I'll lower the number of iterations, which could mean that the
+model doesn't converge in the time allowed. I'll have to check carefully
+that the model has converged before I interpret the parameter estimates! If it
+hasn't, I'll just increase the number of iterations and re-run the MCMC algorithm
+until it has.
 
 ```{r}
+mcmcConf <- configureMCMC(iNat_GLMM_model)
+mcmc <- buildMCMC(mcmcConf)
+
+compiled_list <- compileNimble(iNat_GLMM_model, mcmc)
+
+samples <- runMCMC(compiled_list$mcmc, niter = 5000, nburnin = 1000,
+                   thin = 1, nchains = 3, samplesAsCodaMCMC = TRUE)
+
+summary <- MCMCvis::MCMCsummary(samples)
+
+summary
 
 ```
 
