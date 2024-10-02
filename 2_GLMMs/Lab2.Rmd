@@ -303,7 +303,7 @@ Each row corresponds to a cell/year of data. The following columns are provided:
 - `Precipitation` is the average precipitation level in each cell
 - `Temp_max` is the average annual max daily temperature in the cell
 
-We want to understand how squirrel counts, per unit effort, vary according to four covariates: EVI, human population density, precipitation, and maximum daily temperature. We also want to account for two sources of nonindependence: space and time. We'll include crossed grouping random effects of grid cell and year.
+We want to understand how squirrel counts, per unit effort, vary according to four covariates: EVI, precipitation, and maximum daily temperature. We also want to account for two sources of nonindependence: space and time. We'll include crossed grouping random effects of grid cell and year.
 
 The model we want to estimate is going to be defined by the following equations. First, the observed count of squirrels in cell/year $i$, $y_i$, is distributed as
 $$y_i \sim \text{Poisson}(\text{N}_i \mu_i)$$
@@ -346,7 +346,6 @@ iNat_GLMM_code <- nimbleCode({
   beta1 ~ dnorm(0, sd = 5)
   beta2 ~ dnorm(0, sd = 5)
   beta3 ~ dnorm(0, sd = 5)
-  beta4 ~ dnorm(0, sd = 5)
   sigma_year ~ dgamma(1, 1)
   sigma_cell ~ dgamma(1, 1)
 })
@@ -372,13 +371,12 @@ iNat_GLMM_model <- nimbleModel(
   data = list(
     y = inat_data$squirrel,
     N = inat_data$total,
-    popden = as.numeric(scale(inat_data$Human_popden_sqrt)),
     evi = as.numeric(scale(inat_data$EVI_mean)),
     temp = as.numeric(scale(inat_data$Temp_max)),
     precip = as.numeric(scale(inat_data$Precipitation))
   ), 
   inits = list(
-    beta0 = 1, beta1 = 1, beta2 = 1, beta3 = 1, beta4 = 1,
+    beta0 = 1, beta1 = 1, beta2 = 1, beta3 = 1,
     sigma_year = 1, sigma_cell = 1,
     gamma = rnorm(length(unique(inat_data$grid_cell)), 0, 1),
     alpha = rnorm(length(unique(inat_data$year)), 0, 1)
