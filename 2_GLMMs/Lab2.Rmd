@@ -198,7 +198,7 @@ Now, we want to add in a random intercept effect of each plot.
 GLMM_code <- nimbleCode({
   # Data likelihood
   for (i in 1:nobs) {
-    log(mu[i]) <- beta0 + beta1 * altitude[i] + beta2 * altitude[i]^2 +
+    log(mu[i]) <- beta0 + beta1 * altitude[i] + #beta2 * altitude[i]^2 +
                     ranef_plot[plot[i]]
     y[i] ~ dpois(mu[i])
   }
@@ -406,7 +406,7 @@ mcmc <- buildMCMC(mcmcConf)
 
 compiled_list <- compileNimble(iNat_GLMM_model, mcmc)
 
-samples <- runMCMC(compiled_list$mcmc, niter = 5000, nburnin = 1000,
+samples <- runMCMC(compiled_list$mcmc, niter = 8000, nburnin = 1000,
                    thin = 1, nchains = 3, samplesAsCodaMCMC = TRUE)
 
 summary <- MCMCvis::MCMCsummary(samples)
