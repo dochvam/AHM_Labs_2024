@@ -44,7 +44,8 @@ tryCatch(library(ubms),
 ```
 
 
-In this lab, we'll explore one case where you might want to use real-world 
+In this lab, we'll explore one case where you might want to use data simulation
+in the real world---a power analysis.
 
 Imagine that you're planning to conduct a field study to investigate the 
 occupancy rates of a hard-to-detect woodpecker, and how distance to forest edge 
@@ -69,7 +70,7 @@ Here, I illustrate this with a brief power analysis using a linear model defined
 
 $$y_i \sim \mathcal{N} (\beta_0 + \beta_1 x_i, \sigma^2)$$
 
-I'll simulte datasets of different sizes, fit the linear model, and track the rate at which we detect the true relationship that $\beta_1 \neq 0$.
+I'll simulate datasets of different sizes, fit the linear model, and track the rate at which we detect the true relationship that $\beta_1 \neq 0$.
 
 ```{r}
 set.seed(1001)
