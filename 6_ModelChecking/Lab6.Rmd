@@ -27,6 +27,41 @@ tryCatch(library(nimble),
          })
 ```
 
+# Helper functions
+
+```{r}
+# Functions to generate count data for use in an N-mixture model. 
+# Variables are purposefully given confusing names so it's hard to cheat!
+sim_dataset <- function(case) {
+  set.seed(7887)
+  blah <- 120
+  blah2 <- rnorm(blah)
+  blah3 <- rnorm(blah)
+  h <- blah/40
+  dd <- switch(case, rpois, rnbinom)
+  view <- switch(case, {
+    temp <- dd(blah, exp(0.5 * blah3 + 3.2))
+    temp2 <- suppressMessages(bind_cols(
+      lapply(1:h, function(x) rbinom(blah, temp, plogis(0.5 * blah2 - 0.2)))
+    ))
+    names(temp2) <- paste0("V", 1:h)
+  }, {
+    temp <- dd(blah, mu = 3 + exp(0.5 * blah3 + 2.2), size = 0.1)
+    temp2 <- suppressMessages(bind_cols(
+      lapply(1:h, function(x) 6 + rbinom(max(0, blah - 10), temp, plogis(0.5 * blah2 - 0.2)))
+    ))
+    names(temp2) <- paste0("V", 1:h)
+  })
+  
+  return(list(
+    y = temp2,
+    x1 = blah2,
+    x2 = blah3
+  ))
+}
+```
+
+
 
 # Posterior predictive checking with NIMBLE
 
@@ -70,11 +105,11 @@ model <- nimbleModel(code = code, data = data, constants = constants, inits = in
 Next we'll create some vectors of node names that will be useful for our manipulations.
 
 ```{r}
-## Ensure we have the nodes needed to simulate new datasets
-dataNodes <- model$getNodeNames(dataOnly = TRUE)
-parentNodes <- model$getParents(dataNodes, stochOnly = TRUE)  # `getParents` is new in nimble 0.11.0
-## Ensure we have both data nodes and deterministic intermediates (e.g., lifted nodes)
-simNodes <- model$getDependencies(parentNodes, self = FALSE)
+simNodes <- model$expandNodeNames("y")
+parentNodes <- c("mu", "sigma")
+
+# Store the true values of all the nodes we'll eventually simulate
+true_simNodes_vals <- values(model, simNodes)
 ```
 
 
@@ -144,26 +179,151 @@ ppMin <- apply(ppSamples, 1, min)
 }
 ```
 
-Instead of the minimum observation, we could track the deviance of the model (equivalent to -2 times the log-likelihood)
-
-
-# Exercise 1: Implement posterior predictive checking for a hierarchical model
-
-
-I've written functions to generate count data, for use in an N-mixture model.
-Both datasets have the same formatting and general covariate relationships. However, one of the two datasets violates a major assumption of the N-mixture model. Your task is to use PPCs to determine which of the two datasets violates
+Instead of the minimum observation, we could track the deviance of the model (equivalent to -2 times the log-likelihood). This is a generalizable measure, but it can be less sensitive to potential issues than more targeted measures. We want to compare the deviance of data simulated from each iteration of samples, given those samples, to the mean posterior deviance of the real dataset.
 
 ```{r}
-d1 <- sim_dataset_1()
-d2 <- sim_dataset_2()
+deviance_dist <- numeric(nSamp)
 
+# Simulated data
+set.seed(1)
+system.time({
+for(i in seq_len(nSamp)) {
+    values(cmodel, postNames) <- samples[i, ]  # assign 'flattened' values
+    cmodel$simulate(simNodes, includeData = TRUE)
+    
+    deviance_dist[i] <- -2 * cmodel$calculate()
+}
+})
 
+# Real data
+values(cmodel, simNodes) <- true_simNodes_vals
+deviance_observed <- numeric(nSamp)
+system.time({
+for(i in seq_len(nSamp)) {
+    values(cmodel, postNames) <- samples[i, ]  # assign 'flattened' values
+    deviance_observed[i] <- -2 * cmodel$calculate()
+}
+})
+
+# Mean observed deviance
+deviance_obs_mean <- mean(deviance_observed)
+
+{
+  hist(deviance_dist,
+      main = "Discrepancy = deviance", 
+      xlab = "deviance")
+  abline(v = deviance_obs_mean, col = 'red')
+}
 
 ```
 
 
-# Exercise 2: 
+# Exercise: Implement posterior predictive checking for a hierarchical model
 
+I've written functions to generate count data, for use in an N-mixture model.
+Both datasets have the same formatting and general covariate relationships. However, one of the two datasets violates a major assumption of the N-mixture model. Your task is to use PPCs to determine which of the two datasets has a goodness-of-fit violation. (Try not to look through the simulation functions, which would give it away, until after the exercise!)
+
+```{r}
+d1 <- sim_dataset(1)
+d2 <- sim_dataset(2)
+
+d1$x1[1:10]
+d2$x1[1:10]
+
+head(d1$y)
+head(d2$y)
+```
+
+Both datasets have two site-level covariates that might influence detection or abundnace, x1 and x2. The model against which we want to check for discrepancies is:
+
+$y_{ij} \sim \text{Binom}(N_{i}, p_{i})$
+$N_i \sim \text{Pois}(\lambda_i)$
+
+$\text{logit}(p_i) = \alpha_0 + \alpha_1 x_{i1} + \alpha_2 x_{i2}$
+$\text{log}(\lambda_i) = \beta_0 + \beta_1 x_{i1} + \beta_2 x_{i2}$
+
+To get started, here's some code for defining and running an MCMC for this model.
+
+```{r}
+nmix_code <- nimbleCode({
+  # Model
+  for (i in 1:nsite) {
+    logit(p[i])    <- alpha0 + alpha1 * x1[i] + alpha2 * x2[i]
+    log(lambda[i]) <- beta0 + beta1 * x1[i] + beta2 * x2[i]
+    
+    N[i] ~ dpois(lambda[i])
+    
+    for (j in 1:nobs) {
+      y[i, j] ~ dbinom(size = N[i], prob = p[i])
+    }
+  }
+  
+  # Priors
+  alpha0 ~ dnorm(0, sd = 5)
+  alpha1 ~ dnorm(0, sd = 5)
+  alpha2 ~ dnorm(0, sd = 5)
+  beta0 ~ dnorm(0, sd = 10)
+  beta1 ~ dnorm(0, sd = 5)
+  beta2 ~ dnorm(0, sd = 5)
+})
+
+# Choose which dataset to use
+dat <- d2
+
+# Build the model
+mod <- nimbleModel(
+  nmix_code,
+  constants = list(
+    nobs = ncol(dat$y),
+    nsite = nrow(dat$y),
+    x1 = dat$x1,
+    x2 = dat$x2
+  ), 
+  data = list(
+    y = dat$y
+  ),
+  inits = list(
+    alpha0 = 0, alpha1 = 0, alpha2 = 0,
+    beta0  = 0, beta1  = 0, beta2  = 0,
+    N = rep(max(dat$y) + 10, nrow(dat$y))
+  )
+)
+
+cmod <- compileNimble(mod)
+mcmc <- buildMCMC(mod, monitors = c("alpha0", "alpha1", "alpha2",
+                                    "beta0", "beta1", "beta2", "N"))
+cmcmc <- compileNimble(mcmc)
+
+samples <- runMCMC(cmcmc, niter = 5000, nburnin = 2000, nchains = 2,
+                   thin = 10)
+summary <- MCMCvis::MCMCsummary(samples)
+
+samples_long <- do.call(rbind, samples)
+nSamp <- nrow(samples_long)
+postNames <- colnames(samples_long)
+
+```
+
+
+Use the following code chunk to implement a PPC for this model. For the test statistic, calculate the Freeman-Tukey test statistic. This is defined as
+
+$F = \sum_i \left( \sqrt{y_i} - \sqrt{E(y_i | \theta)} \right)^2$
+
+In the N-mixture model, the expected value of $y_{ij}$ is $N_i p_{ij}$. So, for our case,
+
+$F = \sum_i \left( \sqrt{y_i} - \sqrt{N_i p_i} \right)^2$.
+
+Run the whole workflow with both datasets to determine which violates the model's assumptions.
+
+**NOTE**: because the model is hiearchical, and more complicated than the
+preceding example, you need to make sure to update any intermediate 
+quantities that depend on the parameters, such as $p_i$ and $lambda_i$. You can use the function `cmod$calculate("example")` to ask the model to re-compute the deterministic node called `"example"` based on whatever is upstream of it.
+
+```{r}
+
+
+
+```
 
 
 
