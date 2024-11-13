@@ -80,7 +80,7 @@ true_beta <- 0.5
 true_mean <- 1
 true_error_sd <- 1
 
-ndat <- c(5, 10, 15, 20, 25, 30)
+ndat <- c(5, 10, 15, 20, 25, 30, 500)
 nrep <- 1000
 
 power1 <- numeric(length(ndat))
@@ -101,7 +101,7 @@ for (i in 1:length(ndat)) {
 }
 
 ### Repeat with true_beta = 0.2
-true_beta <- 1
+true_beta <- 5
 power2 <- numeric(length(ndat))
 
 for (i in 1:length(ndat)) {
@@ -128,7 +128,7 @@ bind_rows(
   data.frame(
       power = power2,
       ndat = ndat,
-      beta = 1
+      beta = 5
   )) %>% 
   ggplot() +
   geom_line(aes(ndat, power, group = beta, color = as.factor(beta))) +
@@ -187,7 +187,8 @@ per site, and the true effect of distance to forest on occupancy, but we might
 want to expand this list later on.
 
 ```{r}
-simulate_data <- function(nsites_per_forest, nreps,
+simulate_data <- function(nsites_per_forest, 
+                          nreps,
                           true_forest_effect, 
                           true_forest_sd,
                           logit_occupancy_intercept,
@@ -269,6 +270,8 @@ We'll use the package `ubms` to estimate the occupancy model. `ubms` uses one-li
 calls like unmarked, but estimates models via MCMC and allows random effects.
 
 ```{r}
+# ubms
+
 # Fit an occupancy model with no det covariates, with dist. to forest edge
 # and forest ID random effect on occu
 silence <- capture.output(

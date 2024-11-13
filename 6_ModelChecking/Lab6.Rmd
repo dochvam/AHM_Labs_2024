@@ -1,0 +1,169 @@
+---
+title: 'Lab 6: posterior predictive checking'
+author: "Ben Goldstein and Krishna Pacifici"
+date: "Fall 2024"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+# Install/load the necessary packages and 
+tryCatch(library(devtools), 
+         error = function(e) {
+           install.packages("devtools")
+           library(devtools)
+         })
+tryCatch(library(tidyverse), 
+         error = function(e) {
+           install.packages("tidyverse")
+           library(tidyverse)
+         })
+tryCatch(library(nimble), 
+         error = function(e) {
+           install.packages("nimble")
+           library(nimble)
+         })
+```
+
+
+# Posterior predictive checking with NIMBLE
+
+In this lab, we'll explore using posterior predictive checking to 
+evaluate the fit of a model. The following example was written by Chris Paciorek and is taken from the wonderful help pages provided on [the NIMBLE website](https://r-nimble.org/examples). Code for all these examples is available on the [NIMBLE Github page](https://github.com/nimble-dev/nimble-demos).
+
+Once one has samples from an MCMC, one often wants to do some post hoc manipulation of the samples. An important example is posterior predictive sampling, which is needed for posterior predictive checking.
+
+With posterior predictive sampling, we need to simulate new data values, once for each posterior sample. These samples can then be compared with the actual data as a model check.
+
+In this example, we'll follow the posterior predictive checking done in the Gelman et al. Bayesian Data Analysis book, using Newcomb's speed of light measurements (Section 6.3).
+
+## Posterior predictive sampling using a loop in R
+
+Simon Newcomb made 66 measurements of the speed of light, which one might model using a normal distribution. One question discussed in Gelman et al. is whether the lowest measurements, which look like outliers, could have reasonably come from a normal distribution.
+
+### Setup
+
+We set up the nimble model. 
+
+```{r}
+library(nimble, warn.conflicts = FALSE)
+
+code <- nimbleCode({
+    ## noninformative priors
+    mu ~ dflat()
+    sigma ~ dhalfflat()
+    ## likelihood
+    for(i in 1:n) {
+     	y[i] ~ dnorm(mu, sd = sigma)
+    }
+})
+
+data <- list(y = MASS::newcomb)
+inits <- list(mu = 0, sigma = 5)
+constants <- list(n = length(data$y))
+
+model <- nimbleModel(code = code, data = data, constants = constants, inits = inits)
+```
+
+Next we'll create some vectors of node names that will be useful for our manipulations.
+
+```{r}
+## Ensure we have the nodes needed to simulate new datasets
+dataNodes <- model$getNodeNames(dataOnly = TRUE)
+parentNodes <- model$getParents(dataNodes, stochOnly = TRUE)  # `getParents` is new in nimble 0.11.0
+## Ensure we have both data nodes and deterministic intermediates (e.g., lifted nodes)
+simNodes <- model$getDependencies(parentNodes, self = FALSE)
+```
+
+
+Now run the MCMC.
+
+```{r}
+cmodel 	<- compileNimble(model)
+mcmc    <- buildMCMC(model, monitors = parentNodes)
+cmcmc   <- compileNimble(mcmc, project = model)
+
+samples <- runMCMC(cmcmc, niter = 1000, nburnin = 500)
+```
+
+### Posterior predictive sampling by direct variable assignment
+
+We'll loop over the samples and use the compiled model (uncompiled would be ok too, but slower) to simulate new datasets.
+
+```{r}
+nSamp <- nrow(samples)
+n <- length(data$y)
+ppSamples <- matrix(0, nSamp, n)
+
+set.seed(1)
+for(i in 1:nSamp){
+  cmodel[["mu"]] <- samples[i, "mu"]             ## or cmodel$mu <- samples[i, "mu"]
+  cmodel[["sigma"]] <- samples[i, "sigma"]
+  cmodel$simulate(simNodes, includeData = TRUE)
+  ppSamples[i, ] <- cmodel[["y"]]
+}
+```
+
+### Posterior predictive sampling using `values`
+
+That's fine, but we needed to manually insert values for the different variables. For a more general solution, we can use nimble's `values` function as follows.
+
+```{r}
+ppSamples <- matrix(0, nrow = nSamp, ncol =
+          length(model$expandNodeNames(dataNodes, returnScalarComponents = TRUE)))
+postNames <- colnames(samples)
+
+set.seed(1)
+system.time({
+for(i in seq_len(nSamp)) {
+    values(cmodel, postNames) <- samples[i, ]  # assign 'flattened' values
+    cmodel$simulate(simNodes, includeData = TRUE)
+    ppSamples[i, ] <- values(cmodel, dataNodes)
+}
+})
+```
+
+Side note: For large models, it might be faster to use the variable names as the second argument to `values()` rather than the names of all the elements of the variables. If one chooses to do this, it's important to check that the ordering of variables in the 'flattened' values in `samples` is the same as the ordering of variables in the second argument to `values` so that the first line of the for loop assigns the values from `samples` correctly into the model. 
+
+### Doing the posterior predictive check
+
+At this point, we can implement the check we want using our chosen discrepancy measure. Here a simple check uses the minimum observation.
+
+```{r}
+obsMin <- min(data$y)
+ppMin <- apply(ppSamples, 1, min)
+
+# ## Check with plot in Gelman et al. (3rd edition), Figure 6.3
+{
+  hist(ppMin, xlim = c(-50, 20),
+      main = "Discrepancy = min(y)", 
+      xlab = "min(y_rep)")
+  abline(v = obsMin, col = 'red')
+}
+```
+
+Instead of the minimum observation, we could track the deviance of the model (equivalent to -2 times the log-likelihood)
+
+
+# Exercise 1: Implement posterior predictive checking for a hierarchical model
+
+
+I've written functions to generate count data, for use in an N-mixture model.
+Both datasets have the same formatting and general covariate relationships. However, one of the two datasets violates a major assumption of the N-mixture model. Your task is to use PPCs to determine which of the two datasets violates
+
+```{r}
+d1 <- sim_dataset_1()
+d2 <- sim_dataset_2()
+
+
+
+```
+
+
+# Exercise 2: 
+
+
+
+
