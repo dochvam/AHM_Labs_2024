@@ -45,7 +45,7 @@ Topics:
 #### Estimating the abundance of pileated woodpeckers
 
 We're estimating the abundance of pileated woodpeckers on some land that
-we manage. We have two management units. We went to 16 sites in each management unit 4 times each and counted how many 
+we manage. We have two management units. We went to 16 sites in each management unit 4 times each and counted how many woodpeckers we saw at each site.
 
 
 ```{r}
