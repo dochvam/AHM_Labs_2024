@@ -122,7 +122,7 @@ Design questions:
  - Should we include an effect of Region? Should it be a fixed or random effect?
 
 
-### Modeling workflow
+### Exercise: modify an occupancy model 
 
 I provide code to specify and estimate a model including only the effect of distance to cannabis on gray fox occupancy. Modify the model to include a random effect of region on occupancy, and a fixed effect of Julian date (`jdate`) on detection.
 

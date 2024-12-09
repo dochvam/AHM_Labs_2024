@@ -146,6 +146,7 @@ for(i in 1:nSamp){
 That's fine, but we needed to manually insert values for the different variables. For a more general solution, we can use nimble's `values` function as follows.
 
 ```{r}
+dataNodes <- model$getNodeNames(dataOnly = TRUE)
 ppSamples <- matrix(0, nrow = nSamp, ncol =
           length(model$expandNodeNames(dataNodes, returnScalarComponents = TRUE)))
 postNames <- colnames(samples)
