@@ -1,0 +1,423 @@
+---
+title: 'Lab 1: Intro to Bayesian model estimation: GLMs'
+author: "Ben Goldstein and Krishna Pacifici"
+date: "Fall 2024"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Install/load the necessary packages
+
+tryCatch(library(devtools), 
+         error = function(e) {
+           install.packages("devtools")
+         })
+
+tryCatch(library(MCMCvis), 
+         error = function(e) {
+           install.packages("MCMCvis")
+         })
+
+tryCatch(library(nimble), 
+         error = function(e) {
+           install.packages("nimble")
+         })
+
+tryCatch(library(EcoData), 
+         error = function(e) {
+           devtools::install_github(repo = "TheoreticalEcology/EcoData", 
+                                    dependencies = T, build_vignettes = T)
+         })
+
+
+# Load the EcoData library
+
+library(EcoData)
+
+```
+
+
+
+## Load the data: Beetle counts
+
+In this example, ecologists have surveyed a number of random plots around a
+volcano in New Zealand for beetles. We want to know how the count of beetles
+observed is related to altitude.
+
+
+The data are loaded in a `data.frame` called 
+
+```{r}
+beetle_data <- EcoData::volcanoisland
+```
+
+Let's look at the histogram of counts.
+
+```{r}
+hist(beetle_data$beetles)
+```
+
+We can look at histograms of other columns, too.
+
+```{r}
+# Altitude:
+hist(beetle_data$altitude)
+# Mean wind speed:
+hist(beetle_data$windMean)
+# Habitat quality measure:
+hist(beetle_data$habitatQuality)
+# Year:
+hist(beetle_data$year)
+```
+
+We can also plot beetle counts against different variables.
+
+```{r}
+plot(beetle_data$altitude, beetle_data$beetles)
+
+plot(beetle_data$habitatQuality, beetle_data$beetles)
+
+# Make year a factor so we get boxplots
+plot(as.factor(beetle_data$year), beetle_data$beetles)
+```
+
+
+**What do you notice from looking at these plots?**
+
+
+Before we provide it to the model, we want to *center and scale* altitude,
+our variable of interest.
+
+```{r}
+beetle_data$altitude_scaled <- as.numeric(scale(beetle_data$altitude))
+
+# Store the mean and sd of the originals so we can back-transform later
+altitude_mean <- mean(beetle_data$altitude)
+altitude_sd   <- sd(beetle_data$altitude)
+
+hist(beetle_data$altitude_scaled)
+```
+
+
+### Model 1: beetles and altitude
+
+We will start by estimating a simple GLM with one covariate on the mean abundance of beetles. Since our response variable is a count, the Poisson error family is appropriate. The model we'll estimate is of the form:
+
+$$y_i \sim \text{Poisson}(\lambda_i)$$
+$$\log(\lambda_i) = \beta_0 + \beta_1 \times \text{altitude}_i$$
+$$\lambda_i = e^{\beta_0 + \beta_1 \times \text{altitude}_i}$$
+### Estiamting the model with MLE (Frequentist)
+
+Estimating a GLM with frequentist tools is pretty straightforward. We tend to 
+use out-of-the-box model estimators. In this case, we can just use the `glm` 
+function provided by R. The code looks like the following:
+
+```{r}
+
+fit <- glm(formula = beetles ~ altitude_scaled, 
+           data = beetle_data, 
+           family = poisson(link = "log"))
+summary(fit)
+
+```
+
+
+### Estimating the model with MCMC (Bayesian)
+
+Next, let's estimate this modeling using NIMBLE. For this model, this is 
+overkill, but it's a good place to start for understanding 
+
+#### Define the model code
+
+The first step is to define model code. 
+
+```{r}
+my_code <- nimbleCode({
+  
+  # Data likelihood
+  for (i in 1:nobs) {
+    log(lambda[i]) <- beta0 + beta1 * altitude[i]
+    y[i] ~ dpois(lambda[i])
+  }
+  
+  # Priors for our two parameters
+  beta0 ~ dnorm(0, sd = 10)
+  beta1 ~ dnorm(0, sd = 10)
+})
+
+```
+
+**What do these priors for `beta0` and `beta1` mean?**
+
+**Do we need a prior for `mu`?**
+
+**How do you know if a parameter needs priors to be specified?**
+
+
+
+#### Build and compile the model
+
+The next step is to construct a model object using the definition we just created. At this step, we populate the values for the data and build out the structure.
+
+When you build a nimbleModel, there are four things you need to provide:
+
+1. The model code
+2. A list of **data**. Data are observations in the model that are allowed to
+change or be updated later on.
+3. A list of **constants**. Constants are any quantities that aren't going to
+change. Quantities that define the dimensions of model structure, such as 
+for-loop indices or vector lengths, MUST be provided as constants. Other things
+like covariate data can often be provided as either constants or data.
+4. A list of **initial values**. These are provided for parameters not 
+specified in data/constants and not determined by other quantities in the model.
+Providing initial values is not strictly required but it's almost always a good
+idea.
+
+
+
+```{r}
+my_model <- nimbleModel(
+  code = my_code,
+  data = list(
+    altitude = beetle_data$altitude_scaled,
+    y = beetle_data$beetles
+  ),
+  constants = list(
+    nobs = nrow(beetle_data)
+  ),
+  inits = list(
+    beta0 = 0,
+    beta1 = 1
+  )
+)
+
+```
+
+
+Now we have a model object that we can use to query values of our various nodes;
+calculate the log likelihood of various components of the model; and otherwise
+explore.
+
+```{r}
+
+my_model$y[1:10]
+my_model$lambda[1:10]
+# Calculate the log probability of y | beta0, beta1
+my_model$calculate("y")
+
+```
+
+
+#### Run the MCMC algorithm to estimate the parameters
+
+Now we can use NIMBLE's built-in MCMC algorithm to obtain samples from the posterior distributions of `beta0` and `beta1`.
+
+```{r}
+mcmcConf <- configureMCMC(my_model)
+mcmc <- buildMCMC(mcmcConf)
+compiled_list <- compileNimble(my_model, mcmc)
+
+samples <- runMCMC(compiled_list$mcmc, niter = 2000, nburnin = 0,
+                   thin = 1, nchains = 3, samplesAsCodaMCMC = TRUE)
+```
+
+
+> Note: a "model" is a structure that specifies how a number of quantites are
+statistically related. Some of those quantites are "parameters" that aren't observed
+and that we want to estimate. MCMC is an algorithm used to estimate the parameters
+in a model.
+
+
+I like to use `MCMCvis` to make summaries of my posterior distributions.
+
+```{r}
+summary <- MCMCvis::MCMCsummary(samples)
+
+summary
+```
+The output has the following columns:
+
+ * `mean`: the mean of the posterior samples drawn for the variable
+ * `sd`: the standard deviation of the posterior samples drawn for the variable
+ * `2.5%`, `50%`, `97.5%`: the 2.5th, 50th, and 97.5th quantile of the posterior samples drawn for the variable
+ * `Rhat`: Also called the Gelman-Rubin diagnostic. This value is meant to represent how close well mixed your samples are. Broadly speaking, it tells you how much each of your chains moved around relative to differences between the chains---a well-mixed posterior sample should have mean values for each chain that are close together compared to the amount of mixing each chain is doing. Rhat is always $\geq$ 1. The rule of thumb is that an R-hat value of $\leq$ 1.1 is sufficient. 
+ * `n.eff`: Number of effective samples. This value is an approximation of how many truly independent samples from the posterior distribution would have the same amount of information as your (Markovian, i.e. non-independent) posterior samples. Larger is better.
+
+> Note: Measures of model convergence like `Rhat` and `n.eff` are NEVER measures of model goodness-of-fit or model performance. They are completely different. Very poorly fitting models can converge well. Instead, these are diagnostics that let you know whether your MCMC algorithm functioned sufficiently that your samples adequately represent the joint posterior distribution of your model parameters.
+
+
+We can also visualize traceplots of our parameters using `plot()`.
+
+```{r}
+plot(samples[, 1])
+plot(samples[, 2])
+```
+
+**Based on these traceplots and the model diagnostics from the summary, has the model converged?**
+
+
+#### Compare MLE vs. MCMC estimates
+
+```{r}
+# Comparing MLE and Bayesian results
+# MLE estimates
+summary(fit)
+
+# Bayesian estimates
+summary[, 1]
+
+```
+
+
+#### Posterior predictive sampling
+
+Since we're out of the world of linear models, interpreting the beta estimates
+is a little harder. Next, let's use our Bayesian model to predict counts of beetles at different altitudes.
+
+We'll do this by directly working with the posterior samples we saved from our MCMC run. For a given altitude, we can directly calculate the expected abundance according to the model equation
+$$\log(\lambda) = \beta_0 + \beta_1 \times \text{altitude}$$,
+plugging in each of our samples of $\beta_0$ and $\beta_1$. Then, the resulting set of values of $\lambda$ is your approximate posterior distribution.
+
+Make sure that if you scaled your variables before estimating the model that you provide new altitudes on the same scale!
+
+```{r}
+
+beetle_abund_pred <- data.frame(
+  altitude = seq(-2, 2, length.out = 13),
+  mean = NA, Q025 = NA, Q095 = NA
+)
+
+# Chains don't matter here, so we combine all samples into a matrix:
+samples_mtx <- as.matrix(samples)
+# Make a matrix where each row is a MCMC iteration and each column is an altitude
+lambda_mtx <- matrix(NA, nrow = nrow(samples_mtx), ncol = nrow(beetle_abund_pred))
+
+# Loop over posterior samples and calculate expected abundance
+for (i in 1:nrow(lambda_mtx)) {
+  lambda_mtx[i, ] <- exp(samples_mtx[i, "beta0"] + 
+                         samples_mtx[i, "beta1"] * beetle_abund_pred$altitude) 
+}
+
+# Summarize posteriors
+beetle_abund_pred$mean <- colMeans(lambda_mtx)
+beetle_abund_pred$Q025 <- apply(lambda_mtx, 2, quantile, probs = 0.025)
+beetle_abund_pred$Q975 <- apply(lambda_mtx, 2, quantile, probs = 0.975)
+
+# Back-transform altitude to the correct scale
+beetle_abund_pred$altitude_unscaled <-
+          beetle_abund_pred$altitude * altitude_sd + altitude_mean
+
+# Plot the output
+library(ggplot2)
+ggplot(beetle_abund_pred, aes(altitude, mean, ymin = Q025, ymax = Q975)) +
+  geom_ribbon(alpha = 0.3) +
+  geom_line() +
+  theme_minimal() + xlab("Altitude (m)") + ylab("Expected count of beetles")
+
+```
+
+
+
+### Exercise: modify the covariates in the model
+
+Bear in mind that for this model, we've assumed that the log of the expected
+count of beetles is linearly related to altitude. While that assumption doesn't produce a linear prediction of beetle counts (because of the link function), the curve is still constrained just like in a linear model. 
+
+However, in our exploratory analysis, it looked like beetles might have an
+optimum altitude at which they can be found. An optimum can be represented simply with a quadratic effect of the variable (think of the shape of the equation $y=-x^2$).
+
+*Exercise:* Modify the code from the preceding example to estimate a quadratic effect of altitude on beetle abundance. The model you want to estimate is defined by these equations:
+
+$$y_i \sim \text{Poisson}(\lambda_i)$$
+$$\log(\lambda_i) = \beta_0 + \beta_1 \times \text{altitude}_i + \beta_2 \times (\text{altitude}_i)^2$$
+
+You'll want to start from the initial step by defining new `nimbleCode`.
+
+
+```{r}
+#### Estimating the model
+
+# Define new model code including new quadratic term
+
+my_code <- nimbleCode({
+  
+  # Data likelihood
+  for (i in 1:nobs) {
+    log(lambda[i]) <- beta0 + beta1 * altitude[i] + beta2 * (altitude[i]^2)
+    y[i] ~ dpois(lambda[i])
+  }
+  
+  # Priors for our two parameters
+  beta0 ~ dnorm(0, sd = 10)
+  beta1 ~ dnorm(0, sd = 10)
+  beta2 ~ dnorm(0, sd = 10)
+})
+
+# Build the model, providing an init for beta2. We already provide altitude
+my_model <- nimbleModel(
+  code = my_code,
+  data = list(
+    altitude = beetle_data$altitude_scaled,
+    y = beetle_data$beetles
+  ),
+  constants = list(
+    nobs = nrow(beetle_data)
+  ),
+  inits = list(
+    beta0 = 0,
+    beta1 = 1,
+    beta2 = 0.25
+  )
+)
+
+# Estimate the model
+mcmcConf <- configureMCMC(my_model)
+mcmc <- buildMCMC(mcmcConf)
+compiled_list <- compileNimble(my_model, mcmc)
+
+samples <- runMCMC(compiled_list$mcmc, niter = 2000, nburnin = 0,
+                   thin = 1, nchains = 3, samplesAsCodaMCMC = TRUE)
+
+
+#### Posterior prediction
+
+beetle_abund_pred <- data.frame(
+  altitude = seq(-2, 2, length.out = 13),
+  mean = NA, Q025 = NA, Q095 = NA
+)
+
+# Chains don't matter here, so we combine all samples into a matrix:
+samples_mtx <- as.matrix(samples)
+# Make a matrix where each row is a MCMC iteration and each column is an altitude
+lambda_mtx <- matrix(NA, nrow = nrow(samples_mtx), ncol = nrow(beetle_abund_pred))
+
+# Loop over posterior samples and calculate expected abundance
+for (i in 1:nrow(lambda_mtx)) {
+  lambda_mtx[i, ] <- exp(samples_mtx[i, "beta0"] + 
+                         samples_mtx[i, "beta1"] * beetle_abund_pred$altitude +
+                         samples_mtx[i, "beta2"] * (beetle_abund_pred$altitude^2) 
+                        # ^ this is the only line I modified from the preceding example
+                         ) 
+}
+
+# Summarize posteriors
+beetle_abund_pred$mean <- colMeans(lambda_mtx)
+beetle_abund_pred$Q025 <- apply(lambda_mtx, 2, quantile, probs = 0.025)
+beetle_abund_pred$Q975 <- apply(lambda_mtx, 2, quantile, probs = 0.975)
+
+# Back-transform altitude to the correct scale
+beetle_abund_pred$altitude_unscaled <-
+          beetle_abund_pred$altitude * altitude_sd + altitude_mean
+
+# Plot the output
+library(ggplot2)
+ggplot(beetle_abund_pred, aes(altitude, mean, ymin = Q025, ymax = Q975)) +
+  geom_ribbon(alpha = 0.3) +
+  geom_line() +
+  theme_minimal() + xlab("Altitude (m)") + ylab("Expected count of beetles")
+
+```
+
+
