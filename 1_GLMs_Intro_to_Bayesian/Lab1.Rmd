@@ -6,10 +6,35 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-
 knitr::opts_chunk$set(echo = TRUE)
 
-source("../helper/Prepare_EcoData.R")
+# Install/load the necessary packages
+
+tryCatch(library(devtools), 
+         error = function(e) {
+           install.packages("devtools")
+         })
+
+tryCatch(library(MCMCvis), 
+         error = function(e) {
+           install.packages("MCMCvis")
+         })
+
+tryCatch(library(nimble), 
+         error = function(e) {
+           install.packages("nimble")
+         })
+
+tryCatch(library(EcoData), 
+         error = function(e) {
+           devtools::install_github(repo = "TheoreticalEcology/EcoData", 
+                                    dependencies = T, build_vignettes = T)
+         })
+
+
+# Load the EcoData library
+
+library(EcoData)
 
 ```
 
@@ -109,7 +134,6 @@ overkill, but it's a good place to start for understanding
 The first step is to define model code. 
 
 ```{r}
-library(nimble)
 my_code <- nimbleCode({
   
   # Data likelihood
@@ -172,15 +196,18 @@ my_model <- nimbleModel(
 ```
 
 
-<!-- Now we have a model object that we can use to query values of our various nodes; -->
-<!-- calculate the log likelihood of various components of the model; and otherwise -->
-<!-- explore. -->
-<!-- ```{r} -->
-<!-- my_model$y[1:10] -->
-<!-- my_model$mu[1:10] -->
-<!-- # Calculate the log probability of y | beta0, beta1 -->
-<!-- my_model$calculate("y") -->
-<!-- ``` -->
+Now we have a model object that we can use to query values of our various nodes;
+calculate the log likelihood of various components of the model; and otherwise
+explore.
+
+```{r}
+
+my_model$y[1:10]
+my_model$lambda[1:10]
+# Calculate the log probability of y | beta0, beta1
+my_model$calculate("y")
+
+```
 
 
 #### Run the MCMC algorithm to estimate the parameters
@@ -192,7 +219,7 @@ mcmcConf <- configureMCMC(my_model)
 mcmc <- buildMCMC(mcmcConf)
 compiled_list <- compileNimble(my_model, mcmc)
 
-samples <- runMCMC(compiled_list$mcmc, niter = 500, nburnin = 0,
+samples <- runMCMC(compiled_list$mcmc, niter = 2000, nburnin = 0,
                    thin = 1, nchains = 3, samplesAsCodaMCMC = TRUE)
 ```
 
