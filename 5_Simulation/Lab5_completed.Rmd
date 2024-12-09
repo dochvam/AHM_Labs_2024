@@ -361,7 +361,30 @@ HINT: you can use the same functions for data simulation and model fitting.
 
 ```{r}
 
+conditions <- data.frame(
+  mean_det_prob = c(0.1, 0.2, 0.5)
+) %>% 
+  mutate(power = NA)
 
+nsim <- 5
+
+for (i in 1:nrow(conditions)) {
+  significant <- logical(nsim)
+  for (j in 1:nsim) {
+    datlist <- simulate_data(nsites_per_forest = 10,
+                             nreps = 3, 
+                             true_forest_effect = 1, 
+                             true_forest_sd = 0.25, 
+                             logit_occupancy_intercept = 0, 
+                             logit_detection_intercept = logit(conditions$mean_det_prob[i]))
+    
+    significant[j] <- fit_and_evaluate_one(datlist)
+  }
+  conditions$power[i] <- mean(significant)
+}
+
+# We need more simulations for this to be stable
+conditions 
 ```
 
 
@@ -383,6 +406,104 @@ HINT: you will need to modify both the data simulation function and the model-fi
 
 
 ```{r}
+# New simulation function -- now including an effect of forest edge dist on det
+simulate_data_2 <- function(nsites_per_forest, 
+                            nreps,
+                            true_forest_effect, 
+                            true_forest_effect_on_det, 
+                            true_forest_sd,
+                            logit_occupancy_intercept,
+                            logit_detection_intercept) {
+  
+  dist_edge <- seq(from = 0, to = 2000, length.out = nsites_per_forest)
+  
+  siteCovs <- as.data.frame(expand.grid(
+    dist_edge = dist_edge, 
+    forest_ID = 1:5
+  )) %>% 
+    mutate(site_ID = row_number())
+  
+  # Scale distance-to-edge
+  siteCovs$dist_edge = as.numeric(scale(siteCovs$dist_edge))
+  
+  # Simulate the forest random effect
+  forest_ranef <- rnorm(n = 5, mean = 0, sd = true_forest_sd)
+  
+  # Calculate the occupancy prob for each site
+  psi <- expit(
+    logit_occupancy_intercept + true_forest_effect * siteCovs$dist_edge +
+      forest_ranef[siteCovs$forest_ID]
+  )
+  
+  p <- expit(logit_detection_intercept + true_forest_effect_on_det * siteCovs$dist_edge)
+  
+  z <- numeric(nrow(siteCovs))
+  y <- matrix(NA, nrow = nrow(siteCovs), ncol = nreps)
+  
+  for (i in 1:nrow(y)) {
+    # Simulate the latent state
+    z[i] <- rbinom(n = 1, size = 1, prob = psi[i])
+    
+    y[i,] <- rbinom(n = nreps, size = 1, prob = z[i] * p[i])
+  }
+  
+  return(list(
+    # Return the observed data
+    y = y,
+    siteCovs = siteCovs,
+    umf = unmarkedFrameOccu(y = y, siteCovs = siteCovs),
 
+    # Also return the inputs so we can easily track them later
+    sim_specification = data.frame(
+      nsites_per_forest = nsites_per_forest,
+      nreps = nreps,
+      true_forest_effect = true_forest_effect,
+      true_forest_sd = true_forest_sd,
+      logit_occupancy_intercept,
+      logit_detection_intercept
+    )
+  ))
+}
+
+# New estimation function -- now including an effect of forest edge dist on det
+fit_and_evaluate_one_2 <- function(this_datlist) {
+  silence <- suppressWarnings(capture.output(
+    this_fit <- stan_occu(~ dist_edge ~ dist_edge + (1|forest_ID), data = this_datlist$umf,
+                        iter = 4000, warmup = 2000, verbose = FALSE, refresh=-1)
+  ))
+  
+  s <- summary(this_fit, "state")
+  
+  # Is the credible interval different from 0
+  return(sign(s$`2.5%`)[2] == sign(s$`97.5%`)[2])
+}
+
+
+
+conditions <- data.frame(
+  det_effect_forest = c(0.5, 1, 2)
+) %>% 
+  mutate(power = NA)
+
+nsim <- 5
+
+for (i in 1:nrow(conditions)) {
+  significant <- logical(nsim)
+  for (j in 1:nsim) {
+    datlist <- simulate_data_2(nsites_per_forest = 10,
+                             nreps = 3, 
+                             true_forest_effect = 1,
+                             true_forest_effect_on_det = conditions$det_effect_forest[i],
+                             true_forest_sd = 0.25, 
+                             logit_occupancy_intercept = 0, 
+                             logit_detection_intercept = 0)
+    
+    significant[j] <- fit_and_evaluate_one_2(datlist)
+  }
+  conditions$power[i] <- mean(significant)
+}
+
+# We need more simulations for this to be stable/meaningful
+conditions 
 ```
 
